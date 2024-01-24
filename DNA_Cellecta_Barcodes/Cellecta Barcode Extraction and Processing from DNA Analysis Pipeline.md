@@ -28,7 +28,7 @@ bwa_index_generation.R
 
 Next, submit each SLURM script to the cluster using the `sbatch` command. Ensure that all scripts are correctly configured with the necessary file paths and resource requirements before submission.
 
-sbatch bwa_aligment.sh \
+sbatch bwa_aligment.sh 
 
 Following SLURM scripts, run R scripts (locally or on cluster) to conduct full analysis pipeline.
 
