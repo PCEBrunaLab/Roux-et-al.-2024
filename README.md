@@ -3,9 +3,9 @@ All scripts and code for generation of analysis and figures associated with Roux
 
 
 # Analysis Pipelines:
-DNA Cellecta Barcodes
-Single Cell RNA Sequencing (QC and processing, Trajectory, Clonal Dynamics)
-MuTrans Analysis
-RNA Sequencing (Cell line and Organoids)
-Whole Exome Sequencing
-Whole Genome Sequencing
+DNA Cellecta Barcodes \
+Single Cell RNA Sequencing (QC and processing, Trajectory, Clonal Dynamics) \
+MuTrans Analysis \
+RNA Sequencing (Cell line and Organoids) \
+Whole Exome Sequencing \
+Whole Genome Sequencing \
