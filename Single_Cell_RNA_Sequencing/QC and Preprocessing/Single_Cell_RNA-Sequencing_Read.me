@@ -1,9 +1,3 @@
----
-title: "Single Cell RNA Sequencing Processing"
-output: 
-  pdf_document: default
-  html_document: default
----
 # Single Cell RNA Sequencing Processing
 
 ## Overview
