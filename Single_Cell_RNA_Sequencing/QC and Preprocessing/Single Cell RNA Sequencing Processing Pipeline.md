@@ -40,10 +40,8 @@ The pipeline is structured as a series of SLURM jobs, allowing for efficient res
 10. **Associate Cellecta Barcodes with SCE object (single_cell_cellecta_barcodes.R):**
    - Identify cell quality in terms of cellecta barcodes, then collate metadata for both sample varibles and cellecta barcodes for each cell.
 
-##NB. intermediate QC of SCE object was conducted as per Seurat_processing read.me
+##Emilias QC script
 
-11. **Analysis of Cellecta Barcodes (ClonalDynamics_sc.R):**
-   - Final script conducting analysis as per manuscript (Roux, Hamer & Shea, 2024) to identify clonal dynamics.
 
 
 ## Running the Pipeline
@@ -62,5 +60,4 @@ sbatch normalise.sh
 
 Following SLURM scripts, run R scripts (locally or on cluster) to conduct full analysis pipeline.
 
-single_cell_cellecta_barcodes.R \
-ClonalDynamics_sc.R
+single_cell_cellecta_barcodes.R 
