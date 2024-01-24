@@ -58,9 +58,9 @@ sbatch compress_barcodes.sh \
 sbatch emptydrops.sh \
 sbatch cmo_summary.sh \
 sbatch demux.sh \
-sbatch normalise.sh \
+sbatch normalise.sh 
 
 Following SLURM scripts, run R scripts (locally or on cluster) to conduct full analysis pipeline.
 
-single_cell_cellecta_barcodes.R
+single_cell_cellecta_barcodes.R \
 ClonalDynamics_sc.R
