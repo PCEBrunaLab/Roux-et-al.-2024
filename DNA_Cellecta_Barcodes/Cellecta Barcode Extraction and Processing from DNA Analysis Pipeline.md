@@ -32,5 +32,5 @@ sbatch bwa_aligment.sh \
 
 Following SLURM scripts, run R scripts (locally or on cluster) to conduct full analysis pipeline.
 
-FeatureCounts.R
+FeatureCounts.R \
 ClonalDynamics.R
