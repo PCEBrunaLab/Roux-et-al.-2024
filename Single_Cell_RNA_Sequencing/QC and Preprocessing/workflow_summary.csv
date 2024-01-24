@@ -1,0 +1,44 @@
+﻿Number,Pipeline Stage,Deescription,Input Bash Script,Associated R/Python Script,Input Files,Output Files
+1,Count matrices generation with CellRanger multi,"Analyse cell multiplexed samples from 10x, performs alignment, filtering, barcode counting and UMI counting",cellranger_multi.sh,NA,"config_..._.csv
+CMO_..._I1_fastq.gz
+CMO_..._I2_fastq.gz
+CMO_..._R1_fastq.gz
+CMO_..._R2_fastq.gz
+GEX_..._I1_fastq.gz
+GEX_..._I2_fastq.gz
+GEX_..._R1_fastq.gz
+GEX_..._R2_fastq.gz
+Cellecta_..._I1_fastq.gz
+Cellecta_..._I2_fastq.gz
+Cellecta_..._R1_fastq.gz
+Cellecta_..._R2_fastq.gz","Cellranger multi outputs including but not limited to:
+…_matrix.h5 (hdf5 file)
+…_.bam"
+2,Cellecta Barcode Processing from FASTQ,Looping over FASTQ files from Illumina sequencing and validate Cellecta barcodes.,barcode_process.sh,process_sc_barcodes.py,"Cellecta_..._I1_fastq.gz
+Cellecta_..._I2_fastq.gz
+Cellecta_..._R1_fastq.gz
+Cellecta_..._R2_fastq.gz
+Whitelist_14nt.txt
+Whitelist_30nt.txt",..._barcode_freq.txt.gz
+3,Error Correction of Cellecta Barcodes,Perform error correction on barcodes using hashing.,error_correct_bcs.sh,barcode_error_correct.R,..._barcode_freq.txt.gz,"…_14ntBarcodes.txt
+…_30ntBarocdes.txt
+…_CellBarcodes.txt
+…_UMIs.txt"
+4,Extract 10x barcodes from bam files ,Extract the cellranger corrected barcodes from the alignment bam files - map to the observed/sequenced 10x barcodes.,extract_barcodes.sh,extract_barcode.py,"Cellranger output:
+…_.bam",..._bc.txt.gz
+5,Compile list of uniquly observed 10x barcodes,Run over the cellbarcodes and compress them down to the unique observed 10x barcodes.,compress_barcodes.sh,compress_barcodes.py,..._bc.txt.gz,…_unique.txt.gz
+6,Identify and drop empty droplets with EmptyDrops,Takes in all the 10x experiment cell calls and normalises them together. EmptyDrops removes poor quality cells.,emptydrops.sh,EmptyDrops.R,…_matrix.h5 (hdf5 file),…_SCE.RDS
+7,Summarise Cell and CMO information,Compute summarises for each sample of CMOs and cellIDs,cmo_summary.sh,cmo_stats.R,…_SCE.RDS,"…_CMOsummary.tsv
+…_Cellsummary.tsv"
+8,Demultiplex samples and assign CMOs to pools,Uses the joint distribution of counts over all CMOs to assign cells from pools to correct CMOs,demux.sh,demux.R,…_SCE.RDS,…_demuxed.tsv
+9,Sample Normalisation and generation of single SCE object,Takes in RDS objects from each pool and normalises across samples to generation a single RDS object,normalise.sh,norm_counts.R,"…_SCE.RDS
+…_demuxed.tsv",Neuro_SCE-norm.RDS
+10,Associate Cellecta Barcodes with SCE object,"Identify cell quality in terms of cellecta barcodes, then collate metadata for both sample varibles and cellecta barcodes for each cell.",NA,single_cell_cellecta_barcodes.R,"…_barcode_freq.txt.gz
+…_unique.txt.gz
+…_CellBarcodes.txt
+Neuro_SCE-norm.RDS
+…_demuxed.tsv
+config_all.csv","All_Neuro_metaWBarcodes.txt
+All_Neuro-barcode_freq.txt
+"
+11,Analysis of Cellecta Barcodes,"Final script conducting analysis as per manuscript (Roux, Hamer & Shea, 2024) to identify clonal dynamics.",NA,ClonalDynamics_sc.R,nb_sce_AMT.rds,NA
