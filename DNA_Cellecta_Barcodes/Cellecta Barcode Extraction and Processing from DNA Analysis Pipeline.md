@@ -1,9 +1,3 @@
----
-title: "Cellecta Barcode Extraction and Processing from DNA"
-output: 
-  pdf_document: default
-  html_document: default
----
 # Cellecta Barcode Extraction and Processing from DNA
 
 ## Overview
