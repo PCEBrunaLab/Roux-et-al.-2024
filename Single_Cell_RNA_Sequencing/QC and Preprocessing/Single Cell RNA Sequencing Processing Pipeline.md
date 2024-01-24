@@ -4,7 +4,7 @@
 
 This pipeline is designed for the extraction and processing of Cellecta cellular barcodes from single-cell RNA sequencing. The first set fo scripts detail the extractions, error correction and processing of cellecta barcodes from fastq. This consists of a single R script which works through the analysis of these clones as per manuscript "Dynamic Plasticity Systems Direct Early Adaptation to Treatment in Neuroblastoma" manuscript.
 
-Summary excel spreadsheet has been provided to indicate input and output files from each stage of analysis for each of use.
+Summary excel spreadsheet has been provided to indicate input and output files from each stage of analysis for each of use (workflow_summary.csv)
 
 ## Pipeline Structure
 
