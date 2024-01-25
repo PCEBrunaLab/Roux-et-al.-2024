@@ -1,9 +1,4 @@
----
-title: "shallow Whole Genome Sequencing Analysis Pipeline"
-output: 
-  pdf_document: default
-  html_document: default
----
+
 # Whole Genome Sequencing Analysis
 
 ## Overview
