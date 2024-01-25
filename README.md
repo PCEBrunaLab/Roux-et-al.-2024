@@ -1,5 +1,5 @@
-# Roux C, Hamer S, Shea A (2024) Manuscript Analysis Pipelines
-This Github repository details all scripts and code for processing, analysis and figures associated with Roux, Hamer and Shea et al., 2024 "Dynamic Plasticity Systems Direct Early Adaptation to Treatment in Neuroblastoma" https://doi.org/10.1101/2023.12.07.570359.
+# Roux C, Hamer S, Shea A (2023) Manuscript Analysis Pipelines
+This Github repository details all scripts and code for processing, analysis and figures associated with Roux, Hamer and Shea et al., 2023 "Dynamic Plasticity Systems Direct Early Adaptation to Treatment in Neuroblastoma" https://doi.org/10.1101/2023.12.07.570359.
 
 # Analysis Pipelines:
 
