@@ -40,7 +40,12 @@ The pipeline is structured as a series of SLURM jobs, allowing for efficient res
 10. **Associate Cellecta Barcodes with SCE object (single_cell_cellecta_barcodes.R):**
    - Identify cell quality in terms of cellecta barcodes, then collate metadata for both sample varibles and cellecta barcodes for each cell.
 
-##Emilias QC script
+11. **scRNA-seq analysis workflow using Seurat (analysis_seurat.R):**
+    - Data preparation, QC and filtering
+    - Normalisation, scaling and variable features using `SCTransform()`
+    - Dimensionality reduction
+    - Clustering and marker finding
+    - AMT phenotyping
 
 
 
