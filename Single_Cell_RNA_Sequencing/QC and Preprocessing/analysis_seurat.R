@@ -24,7 +24,7 @@ library(biomaRt)
 library(reshape2)
 library(hues)
 
-nb.sce <- readRDS("Neuro_noS_Combined_SCE-MetaData.RDS")
+nb.sce <- readRDS("nb_sce.RDS")
 
 ## Define lincRNA set: snapshot of the hg38 / GRCh38 version of the ensembl database (v86, 2017)
 ## https://bioconductor.org/packages/3.16/data/annotation/
