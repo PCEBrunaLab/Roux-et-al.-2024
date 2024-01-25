@@ -41,11 +41,11 @@ The pipeline is structured as a series of SLURM jobs, allowing for efficient res
    - Identify cell quality in terms of cellecta barcodes, then collate metadata for both sample varibles and cellecta barcodes for each cell.
 
 11. **scRNA-seq analysis workflow using Seurat (analysis_seurat.R):**
-   - Data preparation, QC and filtering
-   - Normalisation, scaling and variable features using `SCTransform()`
-   - Dimensionality reduction
-   - Clustering and marker finding
-   - AMT phenotyping
+    - Data preparation, QC and filtering
+    - Normalisation, scaling and variable features using `SCTransform()`
+    - Dimensionality reduction
+    - Clustering and marker finding
+    - AMT phenotyping
 
 
 
@@ -66,3 +66,4 @@ sbatch normalise.sh
 Following SLURM scripts, run R scripts (locally or on cluster) to conduct full analysis pipeline.
 
 single_cell_cellecta_barcodes.R 
+analysis_seurat.R
