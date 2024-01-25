@@ -1,11 +1,4 @@
 
----
-title: "Bulk RNA-seq Data Analysis Pipeline"
-output: 
-  pdf_document: default
-  html_document: default
----
-
 # Bulk RNA-seq Data Analysis Pipeline
 
 ## Overview
