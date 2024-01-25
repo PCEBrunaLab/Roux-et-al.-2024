@@ -325,9 +325,6 @@ The orange bars (2) shows the number of barcodes that are observed in exactly 2 
 This concludes the QC and sanity checking on barcodes - I will combine these with the gene expression measurements in a separate notebook.
 
 ```{r, warning=FALSE, message=FALSE}
-write.table(bcs.freq.df, file="~/Dropbox/Neuroblastoma/data/All_Neuro-barcode_freq.txt",
-            sep="\t", quote=FALSE, row.names=FALSE)
-
 write.table(bc.meta.merge, file="~/Dropbox/Neuroblastoma/data/All_Neuro_metaWbarcodes.txt",
             sep="\t", quote=FALSE, row.names=FALSE)
 ```
@@ -341,14 +338,17 @@ nb_sce <- big.sce[ ,!big.sce$Sample %in% c("Neuro_S")]
 
 #Associate meta.df 
 colData(nb_sce) <- merge(colData(nb_sce), meta.df, by=c("Sample", "Batch", "Barcode", "sizeFactor"))
-
 #Duplicated size factor variable, remove one
 colData(nb_sce)$SizeFactor <- NULL
-
 #Replace Batch value with Samples value
 colData(nb_sce)$Batch <- colData(nb_sce)$Sample
 
 saveRDS(nb_sce, "../raw sequencing files/Mendeley/nb_sce.RDS")
+
+metadata.df <- as.data.frame(colData(nb_sce))
+write.table(metadata.df, file="~/Dropbox/Neuroblastoma/data/Neuro_noS_mergedMeta.txt",
+            sep="\t", quote=FALSE, row.names=FALSE)
+
 ```
 
 
