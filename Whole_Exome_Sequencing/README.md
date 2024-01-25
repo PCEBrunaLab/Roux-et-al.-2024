@@ -1,10 +1,3 @@
----
-title: "Exome Sequencing Analysis Pipeline"
-output: 
-  pdf_document: default
-  html_document: default
----
-
 # Exome Sequencing Analysis Pipeline
 
 ## Overview
