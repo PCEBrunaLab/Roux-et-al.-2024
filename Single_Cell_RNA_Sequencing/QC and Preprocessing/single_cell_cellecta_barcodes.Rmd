@@ -1,0 +1,355 @@
+---
+title: "Single-cell Neuroblastoma barcoding"
+output: html_notebook
+---
+
+We have single-cell level Cellecta barcodes from our initial treatment timeseries experiment.  I have error-corrected across all cells for the 14nt and 30nt Cellecta barcodes. I have also error corrected in the 10X Genomics cell barcodes, and the UMIs are in the process of being error corrected _within_ the error-corrected barcodes. 
+
+```{r}
+required.packages <- c("ggplots", "ggthemes", "ggsci", "cowplot", "reshape2", 
+                       "stringi", "dplyr", "SingleCellExperiment", "scater", "scattermore", "viridis",
+                       "biomaRt", "MatrixGenerics", "stringdist", "readr")
+
+if (!all(required.packages %in% installed.packages()[,"Package"])){
+  BiocManager::install(required.packages[!required.packages %in% installed.packages()[,"Package"]])}
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(ggthemes)
+library(ggsci)
+library(cowplot)
+library(reshape2)
+library(stringi)
+library(dplyr)
+library(SingleCellExperiment)
+library(scater)
+library(scattermore)
+library(viridis)
+library(biomaRt)
+library(MatrixGenerics)
+library(stringdist)
+library(readr)
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+file.path <- "../raw sequencing files/Mendeley/"
+bcs.file.list <- list.files(file.path(file.path), pattern="[A-Z]_barcode_freq.txt.gz", full.names=TRUE)
+bcs.file.list <- bcs.file.list[!grepl(bcs.file.list, pattern="CellBarcodes")]
+bcs.list <- list()
+
+for(x in seq_along(bcs.file.list)){
+    x.sample <- gsub(tail(unlist(strsplit(bcs.file.list[x], split="/", fixed=TRUE)), n=1), 
+                     pattern="([A-Z])_(\\S+)(\\.txt\\.gz)", replacement="\\1")
+    x.bcs <- read.table(bcs.file.list[x], sep="\t", header=TRUE, stringsAsFactors=FALSE)
+    x.bcs$Sample <- paste0("Neuro_", x.sample)
+    bcs.list[[x]] <- x.bcs
+}
+
+bcs.all.df <- do.call(rbind.data.frame, bcs.list)
+# remove invalid (i.e. <14nt barcodes)
+bcs.all.df <- bcs.all.df[nchar(bcs.all.df$BC.14) == 14, ]
+# remove invalid (i.e. <30nt barcodes)
+bcs.all.df <- bcs.all.df[nchar(bcs.all.df$BC.30) == 30, ]
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+# aggregate over the corrected cell barcodes and the corrected Cellecta barcodes, summing over the UMIs
+correct.df <- bcs.all.df %>% group_by(Sample, CB, BC.14, BC.30) %>%
+    summarise("Count"=sum(count))
+
+correct.df$CellID <- paste0(paste(correct.df$Sample, correct.df$CB, sep="_"), "-1")
+```
+
+Pull in the mapping between corrected barcodes from Cellranger and the observer CBs.
+
+```{r, warning=FALSE, message=FALSE}
+cb.map.list <- list()
+cbmap.files <- list.files(file.path, pattern="unique", full.names=TRUE)
+for(x in seq_along(cbmap.files)){
+    x.samp <- gsub(tail(unlist(strsplit(cbmap.files[x], split="/", fixed=TRUE)), 1), pattern="(Neuro_[A-Z])_(unique\\.txt.\\gz)", replacement="\\1")
+    x.cb <- read.csv(cbmap.files[x])
+    x.cb$Sample <- x.samp
+    cb.map.list[[x.samp]] <- x.cb
+}
+
+sink(file="/dev/null")
+rm(list=c("x.cb", "x.bcs"))
+gc()
+sink(file=NULL)
+
+cb.map.df <- do.call(rbind.data.frame, cb.map.list)
+cb.map.df$CellID <- paste(cb.map.df$Sample, cb.map.df$Corrected, sep="_")
+```
+
+This is a dataframe of _all_ sequenced cell barcodes - whether they are in droplets or not. I'll filter down to the ones that have already passed QC to make things quicker.
+
+```{r, warning=FALSE, message=FALSE}
+big.sce <- readRDS("../raw sequencing files/Mendeley/Neuro_SCE-norm.RDS")
+```
+
+
+```{r}
+cb.map.df <- cb.map.df[cb.map.df$CellID %in% colnames(big.sce), ]
+```
+
+
+```{r}
+correct.df$CB.Parent <- NA
+# first assign the perfect matches
+correct.df[correct.df$CellID %in% cb.map.df$CellID, ]$CB.Parent <- correct.df[correct.df$CellID %in% cb.map.df$CellID, ]$CB
+
+for(i in seq_len(nrow(cb.map.df))){
+    if(!cb.map.df[i, ]$CellID %in% correct.df$CellID){
+        i.codes <- paste0(paste(cb.map.df[i, ]$Sample, unlist(strsplit(cb.map.df[i, ]$Original, split=",", fixed=TRUE)), sep="_"), "-1")
+        if(length((intersect(i.codes, correct.df$CellID)))){
+            i.inter <- intersect(i.codes, correct.df$CellID)
+            correct.df[correct.df$CellID %in% i.inter, ]$CB.Parent <- gsub(cb.map.df[i, ]$Corrected, pattern="-1", replacement="")
+        }
+        
+    }
+}
+
+correct.df$CellID <- paste0(paste(correct.df$Sample, correct.df$CB.Parent, sep="_"), "-1")
+correct.df <- correct.df[!is.na(correct.df$CB.Parent), ]
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+# we have the demuxed cell barcodes
+demux.list <- list.files(file.path(file.path), pattern="demuxed", full.names = TRUE)
+demux.names <- list.files(file.path(file.path), pattern="demuxed", full.names = FALSE)
+d.list <- list()
+for(x in seq_along(demux.list)){
+    x.d <- read.table(demux.list[x], sep="\t", header=TRUE, stringsAsFactors=FALSE)
+    x.name <- gsub(demux.names[x], pattern="(Neuro_[A-Z])(_demuxed.tsv)", replacement="\\1")
+    x.d$Sample <- x.name
+    d.list[[x.name]] <- x.d
+}
+
+demux.df <- do.call(rbind.data.frame, d.list)
+demux.df$CellID <- paste(demux.df$Sample, demux.df$ID, sep="_")
+col.df <- as.data.frame(colData(big.sce))
+col.df$CellID <- paste(col.df$Sample, col.df$Barcode, sep="_")
+
+# also need the demuxed sample conditions
+config.df <- read.table("../raw sequencing files/Mendeley/config_all.csv", sep=",", header=TRUE, stringsAsFactors=FALSE)
+config.df$Rec <- FALSE
+config.df$Rec[grepl(config.df$description, pattern="_rec")] <- TRUE
+config.df$Condition <- gsub(config.df$description, pattern="(\\S+)(_\\S+)", replacement="\\1")
+config.df$Condition <- gsub(config.df$Condition, pattern="(\\S+)(_\\S+)", replacement="\\1")
+config.df$Condition[config.df$Rec] <- paste0(config.df$Condition[config.df$Rec], "_rec")
+config.df$Condition <- gsub(config.df$Condition, pattern="Cisplation", replacement="Cisplatin")
+config.df$Condition <- gsub(config.df$Condition, pattern="UT", replacement="Untreated")
+config.df$Condition[config.df$Sample %in% c("Neuro_S")] <- config.df$description[config.df$Sample %in% c("Neuro_S")]
+
+# get size factors for QC
+sf.df <- data.frame("CellID"=colnames(big.sce), "Sample"=colData(big.sce)$Sample, "SizeFactor"=sizeFactors(big.sce))
+
+meta.df <- Reduce(x=list(col.df, demux.df, sf.df), f=function(x, y) merge(x, y, by=c("CellID", "Sample")))
+meta.df <- merge(meta.df, config.df, by.x=c("Sample", "CMO"), by.y=c("Sample", "cmo_ids"))
+```
+
+
+```{r}
+length(intersect(correct.df$CellID, meta.df$CellID)) #19643 cells
+```
+
+Continue with these ~19k barcoded cells.
+
+```{r, warning=FALSE, message=FALSE}
+bc.meta.merge <- merge(meta.df, correct.df, by=c('CellID', 'Sample'))
+```
+
+Is there any useful quantitative information contained in the UMI counts for the Cellecta barcodes?
+
+```{r}
+ggplot(bc.meta.merge, aes(x=Count, colour=Sample)) +
+    geom_histogram() +
+    theme_cowplot() +
+    scale_colour_d3() +
+    facet_wrap(~Sample, ncol=1) +
+    NULL
+```
+
+These count distributions look very similar. Perhaps importantly most barcode UMIs are observed <20 times. How many cells contain 
+multiple unique barcodes?
+
+```{r, warning=FALSE, message=FALSE}
+bcs.counts <- bc.meta.merge %>% group_by(Sample, CellID, CMO, 
+                                         Batch, ID, Class, sample_id, description, Rec, Condition) %>%
+    summarise("NBCS"=length(unique(paste0(BC.14, BC.30))))
+```
+
+
+```{r, fig.height=4.5, fig.width=5.5}
+ggplot(bcs.counts, aes(x=NBCS, colour=Sample)) +
+    geom_histogram(binwidth=1) +
+    theme_cowplot() +
+    scale_colour_d3() +
+    facet_wrap(~Sample, ncol=1) +
+    scale_x_continuous(breaks=c(1:max(bcs.counts$NBCS))) +
+    NULL
+
+ggsave("~/Dropbox/Neuroblastoma/plots/Single_cell-Cellecta-NBCperCell-histogram.png",
+       height=4.5, width=5.5, bg='white', dpi=300)
+```
+
+The vast majority of cells contain a single barcode, but some contain multiple.
+
+```{r, warning=FALSE, message=FALSE}
+ggplot(bcs.counts, aes(x=sample_id, y=NBCS, colour=Condition)) +
+    geom_boxplot() +
+    theme_cowplot() +
+    theme(axis.text.x = element_text(angle=90, vjust=0.5, hjust=1)) +
+    scale_colour_d3() +
+    # facet_wrap(~Sample, ncol=1, scales="free_x") +
+    NULL
+```
+
+I can't see any obvious patterns between the experimental design and the number of observed barcodes in a given cell. As a precaution we should remove any cell that contains > 1 barcode if they are very different, e.g. have a hamming distance > 10 from each other (this is ~40% error rate).
+
+```{r, warning=FALSE, message=FALSE}
+all.cells <- unique(bc.meta.merge$CellID)
+good.cells <- rep(1, length(all.cells))
+
+for(x in seq_along(all.cells)){
+    x.cell <- all.cells[x]
+    x.data <- bc.meta.merge[bc.meta.merge$CellID %in% x.cell, , drop=FALSE]
+    if(nrow(x.data) > 1){
+        # check the edit distance between bcs
+        x.dists <- stringdistmatrix(paste0(x.data$BC14.Parent, x.data$BC30.Parent))
+        if(any(x.dists > 10)){
+            good.cells[x] <- 0
+        }
+    }
+}
+
+table(good.cells)
+```
+
+35% of cells contain multiple barcodes. 
+
+```{r, warning=FALSE, message=FALSE}
+clonal.bcs <- names(table(bc.meta.merge$Full.BCS))[table(bc.meta.merge$Full.BCS) > 1]
+multi.cells <- names(table(bc.meta.merge$CellID))[table(bc.meta.merge$CellID) > 1]
+```
+
+
+```{r, warning=FALSE, message=FALSE}
+bc.meta.merge$Keep.BC <- 1
+bc.meta.merge$Keep.BC[bc.meta.merge$CellID %in% multi.cells] <- 0
+
+
+for(i in seq_along(multi.cells)){
+    i.bcs <- bc.meta.merge[bc.meta.merge$CellID %in% multi.cells[i], ]$Full.BCS
+    if(any(i.bcs %in% clonal.bcs)){
+        if(sum(i.bcs %in% clonal.bcs) == 1){
+            # keep this barcode if its the only clonal one
+            bc.meta.merge$Keep.BC[bc.meta.merge$CellID %in% multi.cells[i] & 
+                                      bc.meta.merge$Full.BCS %in% i.bcs[i.bcs %in% clonal.bcs]] <- 1
+        } else{
+            # find the one with the maximum counts
+            i.max <- max(bc.meta.merge$Count[bc.meta.merge$CellID %in% multi.cells[i]])
+            if(sum(bc.meta.merge$CellID %in% multi.cells[i] & bc.meta.merge$Count == i.max) > 1){
+                rand.idx <- sample(which(bc.meta.merge$CellID %in% multi.cells[i] & 
+                                             bc.meta.merge$Count == i.max, arr.ind=TRUE), size=1)
+                bc.meta.merge$Keep.BC[rand.idx] <- 1
+            } else{
+                bc.meta.merge$Keep.BC[bc.meta.merge$CellID %in% multi.cells[i] &
+                                      bc.meta.merge$Count == i.max] <- 1
+            }
+            
+            # what to do if there are 2 barcodes with the same counts? Randomly pick one?!
+            # that might be OK because it is only seen once anyway...
+            
+        }
+    } else{
+        # find the one with the maximum counts
+            i.max <- max(bc.meta.merge$Count[bc.meta.merge$CellID %in% multi.cells[i]])
+            if(sum(bc.meta.merge$CellID %in% multi.cells[i] & bc.meta.merge$Count == i.max) > 1){
+                rand.idx <- sample(which(bc.meta.merge$CellID %in% multi.cells[i] & 
+                                             bc.meta.merge$Count == i.max, arr.ind=TRUE), size=1)
+                bc.meta.merge$Keep.BC[rand.idx] <- 1
+            } else{
+                bc.meta.merge$Keep.BC[bc.meta.merge$CellID %in% multi.cells[i] &
+                                      bc.meta.merge$Count == i.max] <- 1
+            }
+    }
+}
+
+ggplot(bc.meta.merge, aes(x=Count)) +
+    geom_histogram() +
+    theme_cowplot() +
+    facet_wrap(~Keep.BC, scales="free_x") +
+    NULL
+```
+
+This shows the count distribution of barcodes to keep (1) and those to discard (0).
+As a ball-park figure, how many barcodes are observed multiple times?
+
+```{r, warning=FALSE, message=FALSE}
+bc.meta.merge$Full.BCS <- paste(bc.meta.merge$BC.14, bc.meta.merge$BC.30, sep="_")
+bcs.freq.df <- bc.meta.merge %>% group_by(Sample, CMO, Full.BCS, Keep.BC,
+                                          Batch, Class, sample_id, description, Rec, Condition) %>%
+    summarise("NCells"=length(CellID))
+length(unique(bc.meta.merge$Full.BCS[bc.meta.merge$Keep.BC == 1])) #568 barcodes
+```
+
+There are 568 unique barcodes that we are going to keep over all single cells. This is ~8% of the total number of cells which immediately indicates that some barcodes have been observed multiple times. What I'd like to know is if there are any quantitative differences across conditions w.r.t. clonality, i.e. do we see more clonal BCs after treatment than before. Here clonal means observed > once.
+
+```{r, warning=FALSE, message=FALSE}
+bcs.freq.df$Freq.Qual <- as.character(bcs.freq.df$NCells)
+bcs.freq.df$Freq.Qual[bcs.freq.df$NCells >= 10] <- "10+"
+bcs.freq.df$Freq.Qual <- factor(bcs.freq.df$Freq.Qual,
+                                levels=c(as.character(c(1:9)), "10+"))
+
+ggplot(bcs.freq.df[bcs.freq.df$Keep.BC == 1,],
+       aes(x=Condition, fill=Freq.Qual)) +
+    geom_bar(position="dodge") +
+    theme_cowplot() +
+    scale_fill_d3() +
+    scale_y_log10() +
+    NULL
+
+ggsave("~/Dropbox/Neuroblastoma/plots/Single_cell-ObsBCs_bycondition-barplot.png",
+       height=7, width=7, dpi=300, bg='white')
+```
+
+This bar plot shows the number of cells with clonal barcodes across conditions. Each coloured bar represents the number of cells carrying barcodes observed X number of times. So the blue bars with a frequency of 1 are the number of barcodes that only seen in one cell each. 
+The orange bars (2) shows the number of barcodes that are observed in exactly 2 cells, and so on and so forth. I have capped this at 10+ cells for clarity. What is clear is that this 10+ bar contains many barcodes - as many as the the barcodes observed in exactly 3 cells in fact.
+
+This concludes the QC and sanity checking on barcodes - I will combine these with the gene expression measurements in a separate notebook.
+
+```{r, warning=FALSE, message=FALSE}
+write.table(bcs.freq.df, file="~/Dropbox/Neuroblastoma/data/All_Neuro-barcode_freq.txt",
+            sep="\t", quote=FALSE, row.names=FALSE)
+
+write.table(bc.meta.merge, file="~/Dropbox/Neuroblastoma/data/All_Neuro_metaWbarcodes.txt",
+            sep="\t", quote=FALSE, row.names=FALSE)
+```
+
+Assemble SCE object and metadata for downstream analysis. 
+Associate meta data to SCE object.
+
+```{r}
+#Do not need Pool S for analysis so remove this before downstream processing
+nb_sce <- big.sce[ ,!big.sce$Sample %in% c("Neuro_S")]
+
+#Associate meta.df 
+colData(nb_sce) <- merge(colData(nb_sce), meta.df, by=c("Sample", "Batch", "Barcode", "sizeFactor"))
+
+#Duplicated size factor variable, remove one
+colData(nb_sce)$SizeFactor <- NULL
+
+#Replace Batch value with Samples value
+colData(nb_sce)$Batch <- colData(nb_sce)$Sample
+
+saveRDS(nb_sce, "../raw sequencing files/Mendeley/nb_sce.RDS")
+```
+
+
+
