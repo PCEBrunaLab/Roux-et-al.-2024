@@ -12,4 +12,4 @@ RNA Sequencing (Cell lines and Organoids) \
 Whole Exome Sequencing \
 Whole Genome Sequencing 
 
-Associated datafiles can be found via the following link: 
+Associated datafiles have been deposited in Zenodo and can be found via the following link: https://zenodo.org/records/10568834
