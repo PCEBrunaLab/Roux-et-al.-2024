@@ -1,11 +1,15 @@
 # Roux_et_al._2024
-All scripts and code for generation of analysis and figures associated with Roux, Hamer and Shea et al., 2024 "Dynamic Plasticity Systems Direct Early Adaptation to Treatment in Neuroblastoma"
-
+This Github repository details all scripts and code for processing, analysis and figures associated with Roux, Hamer and Shea et al., 2024 "Dynamic Plasticity Systems Direct Early Adaptation to Treatment in Neuroblastoma" https://doi.org/10.1101/2023.12.07.570359.
 
 # Analysis Pipelines:
+
+The provided folders contain all code and scripts needed to process, analyse and plot all figures in the above mentioned manuscript including:
+
 DNA Cellecta Barcodes \
 Single Cell RNA Sequencing (QC and processing, Trajectory, Clonal Dynamics) \
 MuTrans Analysis \
-RNA Sequencing (Cell line and Organoids) \
+RNA Sequencing (Cell lines and Organoids) \
 Whole Exome Sequencing \
 Whole Genome Sequencing 
+
+Associated datafiles can be found via the following link: 
