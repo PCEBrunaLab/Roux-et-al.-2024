@@ -35,8 +35,7 @@ library(readr)
 
 
 ```{r, warning=FALSE, message=FALSE}
-file.path <- "../raw sequencing files/Mendeley/"
-bcs.file.list <- list.files(file.path(file.path), pattern="[A-Z]_barcode_freq.txt.gz", full.names=TRUE)
+bcs.file.list <- list.files(pattern="[A-Z]_barcode_freq.txt.gz", full.names=TRUE)
 bcs.file.list <- bcs.file.list[!grepl(bcs.file.list, pattern="CellBarcodes")]
 bcs.list <- list()
 
@@ -68,7 +67,7 @@ Pull in the mapping between corrected barcodes from Cellranger and the observer 
 
 ```{r, warning=FALSE, message=FALSE}
 cb.map.list <- list()
-cbmap.files <- list.files(file.path, pattern="unique", full.names=TRUE)
+cbmap.files <- list.files(pattern="unique", full.names=TRUE)
 for(x in seq_along(cbmap.files)){
     x.samp <- gsub(tail(unlist(strsplit(cbmap.files[x], split="/", fixed=TRUE)), 1), pattern="(Neuro_[A-Z])_(unique\\.txt.\\gz)", replacement="\\1")
     x.cb <- read.csv(cbmap.files[x])
@@ -120,8 +119,8 @@ correct.df <- correct.df[!is.na(correct.df$CB.Parent), ]
 
 ```{r, warning=FALSE, message=FALSE}
 # we have the demuxed cell barcodes
-demux.list <- list.files(file.path(file.path), pattern="demuxed", full.names = TRUE)
-demux.names <- list.files(file.path(file.path), pattern="demuxed", full.names = FALSE)
+demux.list <- list.files(pattern="demuxed", full.names = TRUE)
+demux.names <- list.files(pattern="demuxed", full.names = FALSE)
 d.list <- list()
 for(x in seq_along(demux.list)){
     x.d <- read.table(demux.list[x], sep="\t", header=TRUE, stringsAsFactors=FALSE)
@@ -136,7 +135,7 @@ col.df <- as.data.frame(colData(big.sce))
 col.df$CellID <- paste(col.df$Sample, col.df$Barcode, sep="_")
 
 # also need the demuxed sample conditions
-config.df <- read.table("../raw sequencing files/Mendeley/config_all.csv", sep=",", header=TRUE, stringsAsFactors=FALSE)
+config.df <- read.table("config_all.csv", sep=",", header=TRUE, stringsAsFactors=FALSE)
 config.df$Rec <- FALSE
 config.df$Rec[grepl(config.df$description, pattern="_rec")] <- TRUE
 config.df$Condition <- gsub(config.df$description, pattern="(\\S+)(_\\S+)", replacement="\\1")
@@ -193,9 +192,6 @@ ggplot(bcs.counts, aes(x=NBCS, colour=Sample)) +
     facet_wrap(~Sample, ncol=1) +
     scale_x_continuous(breaks=c(1:max(bcs.counts$NBCS))) +
     NULL
-
-ggsave("~/Dropbox/Neuroblastoma/plots/Single_cell-Cellecta-NBCperCell-histogram.png",
-       height=4.5, width=5.5, bg='white', dpi=300)
 ```
 
 The vast majority of cells contain a single barcode, but some contain multiple.
@@ -314,9 +310,6 @@ ggplot(bcs.freq.df[bcs.freq.df$Keep.BC == 1,],
     scale_fill_d3() +
     scale_y_log10() +
     NULL
-
-ggsave("~/Dropbox/Neuroblastoma/plots/Single_cell-ObsBCs_bycondition-barplot.png",
-       height=7, width=7, dpi=300, bg='white')
 ```
 
 This bar plot shows the number of cells with clonal barcodes across conditions. Each coloured bar represents the number of cells carrying barcodes observed X number of times. So the blue bars with a frequency of 1 are the number of barcodes that only seen in one cell each. 
@@ -325,7 +318,7 @@ The orange bars (2) shows the number of barcodes that are observed in exactly 2 
 This concludes the QC and sanity checking on barcodes - I will combine these with the gene expression measurements in a separate notebook.
 
 ```{r, warning=FALSE, message=FALSE}
-write.table(bc.meta.merge, file="~/Dropbox/Neuroblastoma/data/All_Neuro_metaWbarcodes.txt",
+write.table(bc.meta.merge, file="All_Neuro_metaWbarcodes.txt",
             sep="\t", quote=FALSE, row.names=FALSE)
 ```
 
@@ -343,10 +336,10 @@ colData(nb_sce)$SizeFactor <- NULL
 #Replace Batch value with Samples value
 colData(nb_sce)$Batch <- colData(nb_sce)$Sample
 
-saveRDS(nb_sce, "../raw sequencing files/Mendeley/nb_sce.RDS")
+saveRDS(nb_sce, "nb_sce.RDS")
 
 metadata.df <- as.data.frame(colData(nb_sce))
-write.table(metadata.df, file="~/Dropbox/Neuroblastoma/data/Neuro_noS_mergedMeta.txt",
+write.table(metadata.df, file="Neuro_noS_mergedMeta.txt",
             sep="\t", quote=FALSE, row.names=FALSE)
 
 ```
