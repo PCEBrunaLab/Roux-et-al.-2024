@@ -44,18 +44,18 @@ library(purrr)
 setwd("~/OneDrive - The Institute of Cancer Research/Sian/Data/2021 scRNA-seq/Preprocessing and Downstream Analysis/Sian/New Analysis/Barcode Analysis/")
 
 #Load in sce and metadata
-big.sce <- readRDS("datafiles/nb_sce_AMT.rds")
+big.sce <- readRDS("nb_sce_AMT.rds")
 big.sce <- big.sce[!grepl(rownames(big.sce), pattern="CMO[0-9]+"),]
 
 amt.anno<-as.data.frame(colData(big.sce)[,c("AMT.score","AMT.state")])
 amt.anno$CellID<-rownames(amt.anno)
 
-meta.df <- read.table("datafiles/Neuro_noS_mergedMeta.txt",
+meta.df <- read.table("Neuro_noS_mergedMeta.txt",
                       sep="\t", header=TRUE, stringsAsFactors=FALSE)
 meta.df <- meta.df %>%
   select(-c(UMAP1, UMAP2, Graph.Cluster, ClusterLabel, Cluster.Sample.Condition))
 
-bcs.df <- read.table("datafiles/All_Neuro_metaWbarcodes.txt",
+bcs.df <- read.table("All_Neuro_metaWbarcodes.txt",
                      sep="\t", header=TRUE, stringsAsFactors=FALSE)
 bcs.df <- bcs.df[bcs.df$Keep.BC == 1, ]
 rownames(bcs.df) <- bcs.df$CellID
@@ -107,7 +107,7 @@ rm(big.sce, umap.df, meta.df, meta.extract.df, amt.anno,
    bcs.df, list_df, meta.merge.df, n.clust, sub.sce)
 gc()
 
-nb.seurat <- readRDS("datafiles/nb_seurat_AMT.rds")
+nb.seurat <- readRDS("nb_seurat_AMT.rds")
 
 #Generate colour palette for seurat_clusters_0.2
 P9 <- c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA")
@@ -450,7 +450,6 @@ ut.cellular.states.perc %>%
         legend.key.size = unit(0.5, 'cm'),
         legend.text = element_text(size=8),
         legend.title = element_text(size=8))
-ggsave("manuscript_plots/ut_cellular_cluster_clones_states_summary_perc.pdf", dpi=320, width=12, height=7)
 
 ut.cellular.states.ss <- tmp2 %>%
   filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
@@ -641,7 +640,6 @@ ut.amt.states.perc %>%
         legend.key.size = unit(0.5, 'cm'),
         legend.text = element_text(size=8),
         legend.title = element_text(size=8))
-ggsave("manuscript_plots/ut_amt_states_clones_states_summary_perc.pdf", dpi=320, width=12, height=7)
 
 #Define clones which are only observed in one cellular state within untreated
 ut.amt.states.ss <- tmp2 %>%
@@ -802,7 +800,6 @@ all.ut.amt.dtp.df %>%
         legend.position = "bottom",
         aspect.ratio = 1,
         strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-ggsave("manuscript_plots/ut_dtps_amt_umap.pdf", dpi = 700, height=7, width =12)
 
 all.ut.cellular.dtp.df %>%
   filter(Condition == "Untreated") %>%
@@ -833,7 +830,6 @@ all.ut.cellular.dtp.df %>%
         legend.position = "bottom",
         aspect.ratio = 1,
         strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-ggsave("manuscript_plots/ut_dtps_cellular_umap.pdf", dpi = 700, height=7, width =12)
 
 all.ut.amt.dtp.df %>%
   filter(Condition == "Untreated_rec") %>%
@@ -865,7 +861,6 @@ all.ut.amt.dtp.df %>%
         legend.position = "bottom",
         aspect.ratio = 1,
         strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-ggsave("manuscript_plots/ut_rec_dtps_amt_umap.pdf", dpi = 700, height=7, width =12)
 
 all.ut.cellular.dtp.df %>%
   filter(Condition == "Untreated_rec") %>%
@@ -896,7 +891,6 @@ all.ut.cellular.dtp.df %>%
         legend.position = "bottom",
         aspect.ratio = 1,
         strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-ggsave("manuscript_plots/ut_rec_dtps_cellular_umap.pdf", dpi = 700, height=7, width =12)
 
 
 #Make compiled list of clones to generate JQ1 colour palette for barcodes
@@ -934,7 +928,6 @@ all.ut.cellular.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_cellular_barcode+rep_1.pdf", dpi=700, width=12, height=7)
 
 #Plot manuscript extended figure 7e
 all.ut.cellular.dtp.df %>%
@@ -959,7 +952,6 @@ all.ut.cellular.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_cellular_barcode+rep_2.pdf", dpi=320, width=12, height=7)
 
 #Plot manuscript extended figure 7e
 all.ut.cellular.dtp.df %>%
@@ -984,7 +976,6 @@ all.ut.cellular.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_cellular_barcode+rep_3.pdf", dpi=320, width=12, height=7)
 
 #Plot manuscript extended figure 7e
 all.ut.cellular.dtp.df %>%
@@ -1007,7 +998,6 @@ all.ut.cellular.dtp.df %>%
         legend.title = element_text(size=8),
         axis.line = element_blank(),
         legend.position = "none")
-ggsave("manuscript_plots/ut_alluvial_cellular_barcode+rep_4.pdf", dpi=320, width=12, height=7)
 
 #AMT
 #Plot manuscript extended figure 7f
@@ -1033,7 +1023,6 @@ all.ut.amt.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_amt_barcode+rep_1.pdf", dpi=700, width=12, height=7)
 
 #Plot manuscript extended figure 7f
 all.ut.amt.dtp.df %>%
@@ -1058,7 +1047,6 @@ all.ut.amt.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_amt_barcode+rep_2.pdf", dpi=320, width=12, height=7)
 
 #Plot manuscript extended figure 7f
 all.ut.amt.dtp.df %>%
@@ -1083,7 +1071,6 @@ all.ut.amt.dtp.df %>%
         legend.text = element_text(size=8),
         legend.title = element_text(size=8),
         axis.line = element_blank())
-ggsave("manuscript_plots/ut_alluvial_amt_barcode+rep_3.pdf", dpi=320, width=12, height=7)
 
 #Plot manuscript extended figure 7f
 all.ut.amt.dtp.df %>%
@@ -1106,7 +1093,6 @@ all.ut.amt.dtp.df %>%
         legend.title = element_text(size=8),
         axis.line = element_blank(),
         legend.position = "none")
-ggsave("manuscript_plots/ut_alluvial_amt_barcode+rep_5.pdf", dpi=320, width=12, height=7)
 
 # scRNA-seq barcodes - Untreated Naive Dynamics
 ut.dtp.df <- full.meta.df %>%
