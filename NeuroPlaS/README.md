@@ -11,7 +11,7 @@ The Neuroblastoma Plasticity Signature (NeuroPlaS) was developed to identify pla
 1. **Differential Expression Analysis**: To identify genes that are upregulated in INT cells compared to ADRN and MES cells, differential expression analysis was conducted using the `FindMarkers` function from the Seurat package.
    - Genes were considered differentially expressed if the adjusted p-value was less than 0.05 and log fold change (logFC) > 1.
 
-2. **Validation Across Datasets**: The robustness of NeuroPlaS was validated across different datasets, including:
+2. **Validation Across Datasets and Models**: The robustness of NeuroPlaS was validated across different datasets, including:
    - Patient-derived xenografts (PDX)
    - Patient-derived organoids (PDO)
    - Cell line samples
