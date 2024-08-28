@@ -14,4 +14,5 @@ Single Cell RNA Sequencing (QC and processing, Trajectory, Clonal Dynamics) \
 MuTrans Analysis \
 RNA Sequencing (Cell lines and Organoids) \
 Whole Exome Sequencing \
-Whole Genome Sequencing 
+Whole Genome Sequencing \
+NeuroPlaS
