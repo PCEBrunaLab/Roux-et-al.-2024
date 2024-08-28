@@ -17,7 +17,7 @@ The Neuroblastoma Plasticity Signature (NeuroPlaS) was developed to identify pla
    - Cell line samples
    - Patient samples from public datasets (Great Ormand Street Hospital with 5 patients and Princess Maxima Center with 16 patients)
 
-The expression of NeuroPlaS genes was assessed in cells annotated as ADRN, MES, and SYM using the `AddModuleScore` function from the Seurat package. This function calculates a module score for each cell based on the expression levels of NeuroPlaS genes.
+The expression of NeuroPlaS genes was assessed using the `AddModuleScore` function from the Seurat package. This function calculates a module score for each cell based on the expression levels of NeuroPlaS genes.
 
 3. **NuroPlaS in DTPs**: Cells are grouped into "Survivor" and "Non-Survivor" categories based on whether their barcodes match those of known Cisplatin survivors and calculates a module score for each cell based on the expression levels of NeuroPlaS genes. 
 
