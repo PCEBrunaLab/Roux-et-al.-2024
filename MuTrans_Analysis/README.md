@@ -5,6 +5,8 @@
 This workflow was used for the data preparation and analysis of cell-state transitions using MuTrans.\
 See the MuTrans GitHub page (https://github.com/cliffzhou92/MuTrans-release) for installation and usage instructions.
 
+Also see the ICR RSE Group MuTrans GitHub (https://github.com/ICR-RSE-Group/MuTrans-release) for changes made to output plots.
+
 ## Structure
 
 1. **Conversion to AnnData** 
