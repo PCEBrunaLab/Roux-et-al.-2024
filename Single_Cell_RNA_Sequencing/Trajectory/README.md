@@ -11,6 +11,3 @@ This workflow was used for the pseudotime ordering and downstream gene analysis 
 
 2. **Dynamic genes: linear model**
    - Significant difference testing with respect to pseudotime using `testPseudotime()`
-
-3. **Dynamic genes: random forest**
-   - Use gene expression to predict pseudotime value with random forests
