@@ -8,8 +8,7 @@ See the MuTrans GitHub page (https://github.com/cliffzhou92/MuTrans-release) for
 ## Structure
 
 1. **Conversion to AnnData** 
-   - Separate data by condition (untreated, cisplatin, JQ1): *`separate_data.R`*
-   - Conversion to AnnData objects using `anndata2ri`: *`anndata.ipynb`*
+   - Separate data by condition (untreated, cisplatin, JQ1) and convert to AnnData object: *`data_prep.R`*
 
 2. **Scanpy pre-processing**
    - Pre-processing and clustering reproduced using `scanpy`: *`mutrans_(condition).ipynb`*
