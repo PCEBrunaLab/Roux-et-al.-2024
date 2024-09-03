@@ -1,7 +1,7 @@
 #! /usr/bin/bash
 
 ## Take the unique observed barcodes
-BASE_DIR="/nfs/research/marioni/mdmorgan/Neuroblastoma_SingleCell"
+BASE_DIR=...
 SRC=$(echo $BASE_DIR"/src")
 
 INPREF=("Neuro_A" "Neuro_B" "Neuro_C" "Neuro_S")
