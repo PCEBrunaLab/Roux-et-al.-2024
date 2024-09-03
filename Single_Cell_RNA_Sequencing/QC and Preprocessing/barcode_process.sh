@@ -2,9 +2,9 @@
 
 ## process Cellecta barcode libraries
 
-BASE_DIR="/nfs/research/marioni/mdmorgan/Neuroblastoma_SingleCell"
+BASE_DIR=...
 SRC=$(echo $BASE_DIR"/src")
-FASTDIR=$(echo $BASE_DIR"/J60_pools_1_2_3_run1315/fastq_path/J60/")
+FASTDIR=$(echo $BASE_DIR"/fastq_path/")
 WHITELIST=$(echo $BASE_DIR"/barcodes/Whitelist_14nt.txt")
 WHITE30=$(echo $BASE_DIR"/barcodes/Whitelist_30nt.txt")
 
