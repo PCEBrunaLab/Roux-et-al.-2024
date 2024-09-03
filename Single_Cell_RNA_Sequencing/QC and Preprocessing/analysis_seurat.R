@@ -32,18 +32,11 @@ require(EnsDb.Hsapiens.v86)
 ens.86.genes <- genes(EnsDb.Hsapiens.v86)
 linc.genes <- ens.86.genes$gene_id[ens.86.genes$gene_biotype=="lincRNA"]
 
-group.cols <- c("Untreated" = "#43ACFF", 
-                "Untreated_rec" = "#225984", 
-                "JQ1" = "#FF7043", 
-                "JQ1_rec" = "#813821", 
-                "Cisplatin" = "#9B43FF", 
-                "Cisplatin_rec" = "#4D2180")
-
 sample.cols <- iwanthue(length(unique(nb.sce$sample_id)))
 names(sample.cols) <- unique(nb.sce$sample_id)
 
 ## [ Data prep ] ----
-
+## For cell lines and PDO models only
 #ensembl <- useMart("ensembl", "hsapiens_gene_ensembl")
 #ens.bm <- getBM(attributes = c("ensembl_gene_id", 
 #                               "chromosome_name",
@@ -118,6 +111,104 @@ mt.genes <- ens.bm$ensembl_gene_id[grep("^MT-", ens.bm$external_gene_name)]
 ribo.genes <- ens.bm$ensembl_gene_id[grep("^RP[SL]", ens.bm$external_gene_name)]
 linc.genes <- linc.genes[linc.genes %in% ens.bm$ensembl_gene_id]
 
+## For PDX models
+#ENSEMBL Data Preparation
+require(EnsDb.Hsapiens.v86)
+ens.86.genes <- genes(EnsDb.Hsapiens.v86)
+linc.genes <- ens.86.genes$gene_id[ens.86.genes$gene_biotype=="lincRNA"]
+
+#We aligned these samples to both mouse and human genome
+ensembl.h <- useMart("ensembl", "hsapiens_gene_ensembl")
+ensembl.m <- useMart("ensembl", "mmusculus_gene_ensembl")
+
+# Separate human and mouse gene IDs based on prefixes
+human_gene_ids <- rownames(nb.sce)[grepl("^GRCh38", rownames(nb.sce))]
+mouse_gene_ids <- rownames(nb.sce)[grepl("^GRCm39", rownames(nb.sce))]
+
+# Remove prefixes
+human_gene_ids_filter <- gsub(human_gene_ids, pattern = "(^GRCh38_)(S*)", replacement = "\\2")
+mouse_gene_ids_filter <- gsub(mouse_gene_ids, pattern = "(^GRCm39_)(S*)", replacement = "\\2")
+
+# Fetch human gene information
+ens.h.bm <- getBM(attributes = c("ensembl_gene_id", 
+                                   "chromosome_name",
+                                   "start_position",
+                                   "end_position",
+                                   "external_gene_name", 
+                                   "hgnc_symbol", 
+                                   "description"), 
+                    mart = ensembl.h, 
+                    filters = "ensembl_gene_id", 
+                    values = human_gene_ids_filter)
+
+# Fetch mouse gene information
+ens.m.bm <- getBM(attributes = c("ensembl_gene_id", 
+                                   "chromosome_name",
+                                   "start_position",
+                                   "end_position",
+                                   "external_gene_name", 
+                                   "mgi_symbol", 
+                                   "description"), 
+                    mart = ensembl.m, 
+                    filters = "ensembl_gene_id", 
+                    values = mouse_gene_ids_filter)
+
+#We have slight differences in column names, remove different column
+ens.h.bm$hgnc_symbol <- NULL
+ens.m.bm$mgi_symbol <- NULL
+
+#Assign column to show which genome the gene has come from
+ens.h.bm$genome <- "human"
+ens.m.bm$genome <- "mouse"
+
+# Combine the results from human and mouse
+combined_ens.bm <- rbind(ens.h.bm, ens.m.bm)
+
+#Save ensembl.csv for reuse to save on connection issues with ensembl
+write.csv(combined_ens.bm, "datafiles/ensembl_pdx_mouse_and_human_biomart.csv")
+gc()
+
+#Identify duplicated gene names
+dup.ensg <- combined_ens.bm$ensembl_gene_id[duplicated(combined_ens.bm$ensembl_gene_id)] 
+dup.ensg <- setNames(combined_ens.bm$external_gene_name[combined_ens.bm$ensembl_gene_id %in% dup.ensg],
+                     combined_ens.bm$ensembl_gene_id[combined_ens.bm$ensembl_gene_id %in% dup.ensg])
+#NCMAP-DT, EIF1B-AS1, LINC00595 duplicated human
+#AA536875 duplicated mouse
+
+#Created filtered ens.bm and keep only useful information
+ens.filt.bm <- combined_ens.bm
+ens.filt.bm$description <- gsub("(^.+) \\[Source.+", "\\1", ens.filt.bm$description)
+ens.filt.bm <- ens.filt.bm[ens.filt.bm$chromosome_name %in% c(1:22, "X", "Y"), ]
+
+#Remove anything not named
+ens.filt.bm <- ens.filt.bm[!ens.filt.bm$external_gene_name=="", ]
+
+#Keep track of everything that didn't get annotated
+ens.removed.bm <- combined_ens.bm[!combined_ens.bm$ensembl_gene_id %in% ens.filt.bm$ensembl_gene_id, ]
+nrow(ens.removed.bm) #13037 transcripts not named
+
+length(grep("[Nn]ovel transcript", ens.removed.bm$description, value = TRUE))
+#12763 are novel transcripts or novel transcripts antisense to a gene
+
+grep("[Nn]ovel transcript", ens.removed.bm$description, value = TRUE, invert = TRUE)
+#The rest is a mixed bag: ~275 genes either novel, mitochondrially encoded, non-coding, or just empty description & name
+
+#Any duplicates?
+sort(ens.filt.bm$external_gene_name[duplicated(ens.filt.bm$external_gene_name)])
+
+#Keep uniques
+ens.filt.bm <- ens.filt.bm[!duplicated(ens.filt.bm$external_gene_name), ]
+nrow(ens.filt.bm) #59062
+
+#Identify mitochondrial, ribosomal and linc genes
+mt.genes <- ens.h.bm$ensembl_gene_id[grep("^MT-", ens.h.bm$external_gene_name)]
+ribo.genes <- ens.h.bm$ensembl_gene_id[grep("^RP[SL]", ens.h.bm$external_gene_name)]
+linc.genes <- linc.genes[linc.genes %in% ens.h.bm$ensembl_gene_id]
+
+#Remove prefix from sce objects
+rownames(nb.sce) <- gsub(rownames(nb.sce), pattern = "(GRC[hm3839]*)_(ENS.*)", replacement = "\\2")
+
+
 ## Basic QC
 nb.sce <- addPerCellQCMetrics(nb.sce, flatten = TRUE, subsets = list(mt = mt.genes, linc = linc.genes, ribo = ribo.genes))
 
@@ -136,8 +227,6 @@ nb.seurat <- CreateSeuratObject(counts = assay(nb.sce, "counts"),
                                 meta.data = metadata.df)
 
 ## [ QC ] ----
-
-nb.sce$Condition <- factor(nb.sce$Condition, levels = c("Untreated", "Untreated_rec", "JQ1", "JQ1_rec", "Cisplatin", "Cisplatin_rec"))
 
 det.sce.gg <- plotColData(nb.sce, y = "detected", x = "Condition", colour_by = "Condition") +
   labs(x = element_blank(), y = "Genes / cell", title = "Detected genes per cell") +
@@ -662,3 +751,7 @@ saveRDS(nb.harmony.seurat, "nb_seurat_AMT.rds")
 
 nb.amt.sce <- as.SingleCellExperiment(nb.harmony.seurat)
 saveRDS(nb.amt.sce, "nb_sce_AMT.rds")
+
+
+## [ Dyer Signature ] ----
+
