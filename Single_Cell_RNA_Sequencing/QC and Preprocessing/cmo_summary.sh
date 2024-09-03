@@ -1,15 +1,11 @@
 #! /usr/bin/bash
-#SBATCH --job=cmo_summary
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --time=1:00:00
 #SBATCH --mem-per-cpu=8000
-#SBATCH --partition=compute
-#SBATCH --output=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.err
-#SBATCH --error=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.out
 
 # Set working directory
-BASE_DIR=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell
+BASE_DIR=...
 cd $BASE_DIR
 
 # load R
@@ -17,10 +13,8 @@ cd $BASE_DIR
 module use /opt/software/easybuild/modules/all/
 module load Mamba
 source ~/.bashrc
-mamba activate hotspot
+mamba activate ...
 
-
-## loop over samples and extract CMO summary information
 ## per sample
 SRCDIR=$(echo $BASE_DIR/src)
 LOGDIR=$(echo $BASE_DIR/logs)
