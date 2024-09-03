@@ -11,10 +11,10 @@ Summary excel spreadsheet has been provided to indicate input and output files f
 The pipeline is structured as a series of SLURM jobs, allowing for efficient resource management and parallel processing in a cluster environment. Followed by R analysis scripts to analysis downstream of processing:
 
 #Cellranger method used depended on whether samples were multiplexed using CellPlex kit for 10x or not, follow correct method as appropriate:
-1A. **Count matrices generation with CellRanger multi (cellranger_multi.sh & config_multi.csv):**
+1A. **Count matrices generation with CellRanger multi (cellranger_multi.sh & config.csv):**
    - Analyse cell multiplexed samples from 10x, performs alignment, filtering barcode counting and UMI counting.
 
-1B. **Count matrices generation with CellRanger multi (cellranger_count.sh & config_count.csv):**
+1B. **Count matrices generation with CellRanger multi (cellranger_count.sh):**
    - Analyse sample from 10x (unmultiplexed), performs alignment, filtering barcode counting and UMI counting.
 
 Two different methods were used for Cellecta barcode extraction; first method 2A through 2A - 3 were used for cellecta barcode extraction for dataset comprising of SK-N-SH treatment with onyl Cisplatin and BRD4i for 48hrs, second method 2B was used for extended dataset in SK-N-SH cells comprising of EZH2i and BRD4i samples and extended treatment lengths up to 7days. One method was used for cellecta barcode extractions and not both.
