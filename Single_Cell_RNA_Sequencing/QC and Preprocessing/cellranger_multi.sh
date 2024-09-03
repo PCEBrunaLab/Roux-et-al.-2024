@@ -19,5 +19,5 @@ mamba activate ...
 #Set path to cellranger
 export PATH=...cellranger-7.1.0:$PATH
 
-## submit a cellranger job
+## submit a cellranger job per multiplexed pool
 cellranger multi --id=Neuro_A --csv=config_A.csv
