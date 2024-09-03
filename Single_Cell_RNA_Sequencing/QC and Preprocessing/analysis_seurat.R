@@ -754,4 +754,7 @@ saveRDS(nb.amt.sce, "nb_sce_AMT.rds")
 
 
 ## [ Dyer Signature ] ----
+Dyer signature colours as taken from paper
+dyer.cols <- c("#27296f", "#7e171a", "#009169")
+
 
