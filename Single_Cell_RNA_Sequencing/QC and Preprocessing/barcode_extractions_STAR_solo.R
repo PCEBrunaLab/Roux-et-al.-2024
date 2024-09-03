@@ -46,7 +46,7 @@ align_barcodes_scRNA <- function(sample) {
 
 
 #Define the files in which you can find the names for the sequencing samples
-samples_sc_rna_seq <- list.files("fastq_in_use1",pattern = "*.fastq.gz", recursive = T, full.names = T)
+samples_sc_rna_seq <- list.files("fastq",pattern = "*.fastq.gz", recursive = T, full.names = T)
 print(samples_sc_rna_seq)
 
 #Substitute the names generated above without the file extras
