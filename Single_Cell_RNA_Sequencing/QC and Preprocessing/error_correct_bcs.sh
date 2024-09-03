@@ -2,7 +2,7 @@
 
 module load r-4.1.1-gcc-9.3.0-jkdw35f
 
-BASEDIR="/nfs/research/marioni/mdmorgan/Neuroblastoma_SingleCell"
+BASEDIR=...
 SRC=$(echo $BASEDIR"/src")
 
 INDIR=$(echo $BASEDIR"/barcodes")
