@@ -27,7 +27,7 @@ Two different methods were used for Cellecta barcode extraction; first method 2A
    - Run over the cellbarcodes and compress them down to the unique observed barcodes.
 
 
-2B. **Cellecta Barcode Processing from FASTQ using STARsolo (submit_barcode_extractions_STARsolo.sh & barcode_extractions_STARsolo.R):** 
+2B. **Cellecta Barcode Processing from FASTQ using STARsolo (barcode_extractions_STARsolo.sh & barcode_extractions_STARsolo.R):** 
    - Extracting Cellecta barcodes using whitelist of possible barcode sequences from fastq using STARsolo.
 
 
