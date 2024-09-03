@@ -1,15 +1,11 @@
 #! /usr/bin/bash
-#SBATCH --job=Neuro_norm
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=24
 #SBATCH --time=48:00:00
 #SBATCH --mem-per-cpu=8000
-#SBATCH --partition=compute
-#SBATCH --output=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.err
-#SBATCH --error=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.out
 
 # Set working directory
-BASE_DIR=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell
+BASE_DIR=...
 cd $BASE_DIR
 
 # load R
@@ -17,7 +13,7 @@ cd $BASE_DIR
 module use /opt/software/easybuild/modules/all/
 module load Mamba
 source ~/.bashrc
-mamba activate hotspot
+mamba activate ..
 
 ## loop over samples and extract CMO summary information
 ## per sample
