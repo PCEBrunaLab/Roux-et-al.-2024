@@ -1,20 +1,13 @@
 #! /usr/bin/bash
-#SBATCH --job=demux
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --time=1:00:00
 #SBATCH --mem-per-cpu=8000
-#SBATCH --partition=compute
-#SBATCH --output=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.out
-#SBATCH --error=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell/logs/%x.%j.err
-
-#SBATCH --mail-user=sian.hamer@icr.ac.uk
-#SBATCH --mail-type=ALL
 
 ### demultiplex with CellPlex CMOs
 
 # Set working directory
-BASE_DIR=/data/scratch/DMP/DUDMP/PAEDCANC/shamer/J60_singlecell
+BASE_DIR=...
 cd $BASE_DIR
 
 # load R and conda environment
@@ -22,9 +15,9 @@ cd $BASE_DIR
 module use /opt/software/easybuild/modules/all/
 module load Mamba
 source ~/.bashrc
-mamba activate hotspot
+mamba activate ..
 
-
+#Conduct per multiplexed pool
 SRCDIR=$(echo $BASE_DIR/src)
 LOGDIR=$(echo $BASE_DIR/logs)
 OUTDIR=$(echo $BASE_DIR/SCE.dir)
