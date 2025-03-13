@@ -10,12 +10,11 @@ Also see the ICR RSE Group MuTrans GitHub (https://github.com/ICR-RSE-Group/MuTr
 ## Structure
 
 1. **Conversion to AnnData** 
-   - Separate data by condition (untreated, cisplatin, JQ1) and convert to AnnData object: *`data_prep.R`*
+   - Separate data and convert to AnnData object at the end of trajectory R scripts
 
 2. **Scanpy pre-processing**
-   - Pre-processing and clustering reproduced using `scanpy`: *`mutrans_(condition).ipynb`*
+   - Pre-processing and clustering reproduced using `scanpy` in prep scripts.
 
 3. **Landscape construction**
-   - Visualisation of the dynamical manifold, identification of attractor basins, and calculation of transition probabilities using MuTrans: *`mutrans_(condition).ipynb`*\
+   - Visualisation of the dynamical manifold, identification of attractor basins, and calculation of transition probabilities using MuTrans: *`mutrans_(condition)_dynam.py`*\
      N.B. this needs to be run from the ``./Example/`` folder - see MuTrans GitHub (https://github.com/cliffzhou92/MuTrans-release)
-   - Gene set enrichment analysis to characterise the attractor basins carried out in R: *`gene_analysis.R`*
