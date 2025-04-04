@@ -17,7 +17,8 @@ Cellranger method used depended on whether samples were multiplexed using CellPl
 1B. **Count matrices generation with CellRanger multi (cellranger_count.sh):**
    - Analyse sample from 10x (unmultiplexed), performs alignment, filtering barcode counting and UMI counting.
 
-Two different methods were used for Cellecta barcode extraction; first method 2A through 2A - 3 were used for cellecta barcode extraction for dataset comprising of SK-N-SH treatment with onyl Cisplatin and BRD4i for 48hrs, second method 2B was used for extended dataset in SK-N-SH cells comprising of EZH2i and BRD4i samples and extended treatment lengths up to 7days. One method was used for cellecta barcode extractions and not both.
+Two different methods were used for Cellecta barcode extraction; first method 2A through 2A - 3 were used for cellecta barcode extraction for dataset comprising of SK-N-SH treatment with onyl Cisplatin and BRD4i for 48hrs, **second method 2B was used for extended dataset in SK-N-SH cells comprising of EZH2i and BRD4i samples and extended treatment lengths up to 7days, patient derived organoid models NB-039 and NB-067, as well as patient derived xenograft models GR-NB5. One method was used for cellecta barcode extractions and not both**.
+
 2A. **Cellecta Barcode Processing from FASTQ (barcode_process.sh & process_sc_barcodes.py):** 
    - Looping over FASTQ files from Illumina sequencing and validate Cellecta barcodes.
 
