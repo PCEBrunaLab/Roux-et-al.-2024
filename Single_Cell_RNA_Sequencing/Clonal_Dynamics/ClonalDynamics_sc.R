@@ -11,6 +11,7 @@ if (!all(required.packages %in% installed.packages()[,"Package"])){
   BiocManager::install(required.packages[!required.packages %in% installed.packages()[,"Package"]])
 }
 
+
 library(dplyr)
 library(SingleCellExperiment)
 library(tidyverse)
@@ -41,3391 +42,1418 @@ library(vegan)
 library(ggVennDiagram)
 library(purrr)
 
-setwd("~/OneDrive - The Institute of Cancer Research/Sian/Data/2021 scRNA-seq/Preprocessing and Downstream Analysis/Sian/New Analysis/Barcode Analysis/")
-
 #Load in sce and metadata
-big.sce <- readRDS("nb_sce_AMT.rds")
-big.sce <- big.sce[!grepl(rownames(big.sce), pattern="CMO[0-9]+"),]
+#Load in RDS object with barcodes for processing
+nb.seurat <- readRDS("datafiles/nb_seurat_Wbarcodes.RDS")
 
-amt.anno<-as.data.frame(colData(big.sce)[,c("AMT.score","AMT.state")])
-amt.anno$CellID<-rownames(amt.anno)
+meta.df <- as.data.frame(nb.seurat@meta.data)
 
-meta.df <- read.table("Neuro_noS_mergedMeta.txt",
-                      sep="\t", header=TRUE, stringsAsFactors=FALSE)
-meta.df <- meta.df %>%
-  select(-c(UMAP1, UMAP2, Graph.Cluster, ClusterLabel, Cluster.Sample.Condition))
+meta.df$replicate[meta.df$replicate == " A"] <- "A"
+meta.df$replicate[meta.df$replicate == " B"] <- "B"
+meta.df$replicate[meta.df$replicate == " C"] <- "C"
 
-bcs.df <- read.table("All_Neuro_metaWbarcodes.txt",
-                     sep="\t", header=TRUE, stringsAsFactors=FALSE)
-bcs.df <- bcs.df[bcs.df$Keep.BC == 1, ]
-rownames(bcs.df) <- bcs.df$CellID
+#Add in POT replicates
+meta.df$description[meta.df$batch == "multiplex5" & meta.df$Condition == "POT"] <- "POT A"
+meta.df$description[meta.df$batch == "multiplex11" & meta.df$Condition == "POT"] <- "POT B"
+meta.df$description[meta.df$batch == "multiplex12" & meta.df$Condition == "POT"] <- "POT C"
 
-#Extract UMAP information
-meta.extract.df <- as.data.frame(colData(big.sce))[, c( "sample_id", "description", "seurat_clusters.0.2", "Cluster_Name", "AMT.score")]
-#saveRDS(meta.extract.df, "meta_df.rds")
-
-umap.df <- as.data.frame(reducedDim(big.sce, "UMAP"))
-#saveRDS(umap.df, "umap_df.rds")
-
-#Introduce new cluster and umap information
-meta.extract.df$CellID <- rownames(meta.extract.df)
-umap.df$CellID <- rownames(umap.df)
-
-# Join all data frames in list
-list_df <- list(meta.extract.df, umap.df, meta.df) 
-meta.merge.df <- Reduce(function(x, y) full_join(x, y), list_df)
-
-# Add barcode information to cells
-colData(big.sce)$Full.BCS <- bcs.df[colnames(big.sce), ]$Full.BCS
-full.meta.df <- merge(meta.merge.df, bcs.df[, c("CellID", "BC.30", "BC.14", "Full.BCS", "Count")], by='CellID', all.x=TRUE)
-n.clust <- length(unique(full.meta.df$seurat_clusters.0.2[!(is.na(full.meta.df$seurat_clusters.0.2))]))
-clust.cols <- pal_igv()(n.clust)
-names(clust.cols) <- levels(full.meta.df$seurat_clusters.0.2)
-
-full.meta.df$seurat_clusters.0.2 <- factor(full.meta.df$seurat_clusters.0.2,
-                                           levels=c(0:n.clust))
-sub.sce <- big.sce[, !big.sce$Batch %in% c("Neuro_S")]
-
-#Remove any cells with no Cellecta barcodes
-sub.sce <- sub.sce[, !is.na(colData(sub.sce)$Full.BCS)]
-full.meta.df <- full.meta.df[full.meta.df$CellID %in% colnames(sub.sce), ]
-
-#Change name of barcodes variable
-names(full.meta.df)[names(full.meta.df) == 'Full.BCS'] <- 'real_bc44'
-full.meta.df <- merge(full.meta.df, amt.anno, by=c("CellID", "AMT.score"))
-
-#Names have changed since last time so lets change the names
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "Large"] <- "EMT"
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "JQ1"] <- "Chromatin Remodelling"
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "QC"] <- "Stress Response"
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "Cisplatin"] <- "Apoptotic"
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "GrpA"] <- "Cycling MES"
-full.meta.df$Cluster_Name[full.meta.df$Cluster_Name == "GrpB"] <- "Cycling ADRN"
-
-#Remove unnessecary files
-rm(big.sce, umap.df, meta.df, meta.extract.df, amt.anno, 
-   bcs.df, list_df, meta.merge.df, n.clust, sub.sce)
-gc()
-
-nb.seurat <- readRDS("nb_seurat_AMT.rds")
-
-#Generate colour palette for seurat_clusters_0.2
-P9 <- c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA")
-P9 <- as.vector(t(matrix(P9)))
-names(P9) = c("0", "1", "2", "3", "4", "5", "6", "7", "8")
-
-#Define colour palette for conditions
-evalVignette <- requireNamespace("ggplot2", quietly = TRUE)
-knitr::opts_chunk$set(eval = evalVignette)
-P6 = createPalette(6,  c("#ff0000", "#00ff00", "#0000ff"))
-P6 <- as.vector(t(matrix(P6)))
-names(P6) = unique(nb.seurat$Condition)
-
-group.cols <- c("Untreated_rec" = "#F7000D", 
-                "JQ1" = "#22FF0D", 
-                "Untreated" = "#1C16FE", 
-                "Cisplatin" = "#FFD1D3", 
-                "Cisplatin_rec" = "#FE16E1", 
-                "JQ1_rec" = "#00D1FD")
-
-umap.theme <- function() {
-  require(ggplot2)
-  return(theme_bw() +
-           theme(aspect.ratio = 1, 
-                 panel.grid = element_blank(),
-                 panel.border = element_blank(),
-                 axis.line = element_line(colour = "#16161D", linewidth = 0.8),
-                 axis.ticks = element_line(colour = "#16161D", linewidth = 0.8),
-                 legend.title = element_blank()))
-}
-
-library(harmony)
-library(ggsankey)
-library(tidyverse)
-
-# scRNA-seq barcodes - Initial Processing
-#Plot Manuscript Figure 3a
-DimPlot(nb.seurat,
-                   group.by = "seurat_clusters.0.2", order = TRUE) +
-  scale_colour_manual(values = P9) +
-  umap.theme() + labs(title = "10x Clusters res=0.2")
-
-#Plot Manuscript Figure 3c
-adrn.mes.gg <- DimPlot(nb.seurat,
-                       group.by = "AMT.state") +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  umap.theme() +
-  labs(title = "AMT state")
-
-#Cellular cluster plots
-#Plot Manuscript Figure 3b
-full.meta.df %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated", "Untreated_rec", "Cisplatin", "Cisplatin_rec", "JQ1", "JQ1_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=8)) +
-  scale_colour_manual(values=P9) +
-  facet_wrap(~Condition, nrow = 2, ncol = 3) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-
-#AMT state plots
-#Plot Manuscript Figure 3d
-full.meta.df %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated", "Untreated_rec", "Cisplatin", "Cisplatin_rec", "JQ1", "JQ1_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  facet_wrap(~Condition, nrow = 2, ncol = 3) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-tmp <- full.meta.df %>%
-  group_by(AMT.state, Condition, Sample) %>%
-  mutate(count=n()) %>%
-  ungroup() %>%
-  group_by(Condition, Sample) %>%
-  mutate(total = sum(count)) %>%
-  ungroup() %>%
-  mutate(percentage = (count/total)*100) %>%
-  ungroup()
-
-filtered.2.meta.df <- tmp %>%
-  group_by(Condition, AMT.state, Sample) %>%
-  summarise(total_perc = sum(percentage)) %>%
-  ungroup() %>%
-  mutate(Condition = fct_relevel(Condition, "Untreated", "Untreated_rec",
-                                 "Cisplatin", "Cisplatin_rec", "JQ1", "JQ1_rec"))
-
-amt.perc.change <- filtered.2.meta.df %>%
-  group_by(AMT.state, Sample) %>%
-  mutate(percentage_change = total_perc/total_perc[Condition == "Untreated"]) %>%
-  ungroup()
-
-library(stats)
-amt.perc.change.summary <- amt.perc.change %>%
-  group_by(Condition, AMT.state) %>%
-  mutate(log_perc_change = log10(percentage_change),
-         mean = mean(log_perc_change),
-         sd = sd(log_perc_change))
-
-test <- merge(amt.perc.change, amt.perc.change.summary)
-
-#Plot Manuscript Figure 3e
-test %>%
-  filter(Condition != "Untreated" & Condition != "Untreated_rec") %>%
-  group_by(Condition, Sample) %>%
-  ggplot( aes(x=Condition, y=log_perc_change, fill = AMT.state)) +
-  geom_bar(stat="summary", position="dodge") +
-  geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2,
-                position=position_dodge(.9)) +
-  geom_hline(yintercept = 0, linetype="dashed") +
-  facet_wrap(~AMT.state, scales = "free") +
-  ylab("Percentage Change \nfrom Untreated") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099")) +
-  theme_bw() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.title.x = element_blank(),
-        aspect.ratio = 1)
-
-
-#Conduct pairwise t test between populations
-#Create df per amt state
-amt.perc.change.mes <- amt.perc.change %>%
-  ungroup() %>%
-  filter(AMT.state == "MES") %>%
-  select(-c(AMT.state, Sample, total_perc))
-
-amt.perc.change.inter <- amt.perc.change %>%
-  ungroup() %>%
-  filter(AMT.state == "intermediate") %>%
-  select(-c(AMT.state, Sample, total_perc))
-
-amt.perc.change.adrn <- amt.perc.change %>%
-  ungroup() %>%
-  filter(AMT.state == "ADRN") %>%
-  select(-c(AMT.state, Sample, total_perc))
-
-n_sample <- unique(amt.perc.change$Condition)
-first = T
-for (i in 1:length(n_sample)) {
-  for(j in 1:length(n_sample)){
-    if(i > j){  
-      
-      tmp = t.test(amt.perc.change.mes$percentage_change[amt.perc.change.mes$Condition==n_sample[i]],
-                   amt.perc.change.mes$percentage_change[amt.perc.change.mes$Condition==n_sample[j]])
-      
-      if(first){
-        df_pval = data.frame(GroupA = n_sample[i],
-                             GroupB = n_sample[j],
-                             pvalue = tmp$p.value)
-        first = F
-      } else {
-        df_pval = rbind.data.frame(df_pval,
-                                   data.frame(GroupA = n_sample[i],
-                                              GroupB = n_sample[j],
-                                              pvalue = tmp$p.value))
-      }
-    }
-  }
-}
-
-df_pval$fdr = p.adjust(df_pval$pvalue, method = "fdr", n = length(df_pval$pvalue))
-df_pval <- df_pval %>%
-  mutate(signif = ifelse(df_pval$fdr <= 0.05, "TRUE", "FALSE"),
-         signif_value = ifelse(df_pval$fdr <= 0.001, "***", 
-                               ifelse(df_pval$fdr <= 0.01, "**",
-                                      ifelse(df_pval$fdr <= 0.05, "*", "NA"))))
-
-#Statstical test for Figure 3e - MES
-df_pval_mes <- df_pval
-
-first = T
-for (i in 1:length(n_sample)) {
-  for(j in 1:length(n_sample)){
-    if(i > j){  
-      
-      tmp = t.test(amt.perc.change.inter$percentage_change[amt.perc.change.inter$Condition==n_sample[i]],
-                   amt.perc.change.inter$percentage_change[amt.perc.change.inter$Condition==n_sample[j]])
-      
-      if(first){
-        df_pval = data.frame(GroupA = n_sample[i],
-                             GroupB = n_sample[j],
-                             pvalue = tmp$p.value)
-        first = F
-      } else {
-        df_pval = rbind.data.frame(df_pval,
-                                   data.frame(GroupA = n_sample[i],
-                                              GroupB = n_sample[j],
-                                              pvalue = tmp$p.value))
-      }
-    }
-  }
-}
-
-df_pval$fdr = p.adjust(df_pval$pvalue, method = "fdr", n = length(df_pval$pvalue))
-df_pval <- df_pval %>%
-  mutate(signif = ifelse(df_pval$fdr <= 0.05, "TRUE", "FALSE"),
-         signif_value = ifelse(df_pval$fdr <= 0.001, "***", 
-                               ifelse(df_pval$fdr <= 0.01, "**",
-                                      ifelse(df_pval$fdr <= 0.05, "*", "NA"))))
-
-#Statstical test for Figure 3e - HYB
-df_pval_inter <- df_pval
-
-first = T
-for (i in 1:length(n_sample)) {
-  for(j in 1:length(n_sample)){
-    if(i > j){  
-      
-      tmp = t.test(amt.perc.change.adrn$percentage_change[amt.perc.change.adrn$Condition==n_sample[i]],
-                   amt.perc.change.adrn$percentage_change[amt.perc.change.adrn$Condition==n_sample[j]])
-      
-      if(first){
-        df_pval = data.frame(GroupA = n_sample[i],
-                             GroupB = n_sample[j],
-                             pvalue = tmp$p.value)
-        first = F
-      } else {
-        df_pval = rbind.data.frame(df_pval,
-                                   data.frame(GroupA = n_sample[i],
-                                              GroupB = n_sample[j],
-                                              pvalue = tmp$p.value))
-      }
-    }
-  }
-}
-
-df_pval$fdr = p.adjust(df_pval$pvalue, method = "fdr", n = length(df_pval$pvalue))
-df_pval <- df_pval %>%
-  mutate(signif = ifelse(df_pval$fdr <= 0.05, "TRUE", "FALSE"),
-         signif_value = ifelse(df_pval$fdr <= 0.001, "***", 
-                               ifelse(df_pval$fdr <= 0.01, "**",
-                                      ifelse(df_pval$fdr <= 0.05, "*", "NA"))))
-
-#Statstical test for Figure 3e - ADRN
-df_pval_adrn <- df_pval
-
-
-# scRNA-seq barcodes - Alluvial Untreated Initial
-ut.cellular.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "Untreated_rec") %>%
-  select(c(seurat_clusters.0.2, Sample, real_bc44, Condition, Count))
-
-ut.cellular.dtp.df <- ut.cellular.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- ut.cellular.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
-  ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "Untreated_rec"] <- "T2"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(seurat_clusters.0.2))
-
-ut.cellular.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-ut.cellular.states.summary <- ut.cellular.states %>%
-  filter(Condition == "Untreated_rec")
-
-#Calculate percentage of clones with each representation
-ut.cellular.states.perc <- ut.cellular.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
-  ungroup()
-
+#Set palette so that 
 set.seed(12)
-P8 = createPalette(8, c("#ff0000", "#00ff00", "#0000ff"), M=10)
-P8 <- as.vector(t(matrix(P8)))
-names(P8) = unique(as.character(ut.cellular.states.perc$count))
-ut.cellular.states.perc$count <- as.character(ut.cellular.states.perc$count)
-
-#Plot manuscript exteneded figure 7d - UT
-ut.cellular.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("UT Recovery Cellular Cluster Clone Summary")+
-  scale_fill_manual(values = P8)+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
-
-ut.cellular.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
-
-ut.cellular.states.ss.df <- merge(ut.cellular.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(ut.cellular.states.ss.df$real_bc44)) #151 clones
-
-ut.cellular.states.ss.T2 <- ut.cellular.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-ut.cellular.states.ss.T2$clone_state <- NA
-
-dtp.ut.meta.clones <- ut.cellular.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T2", "DTP", clone_state))
-
-dtp.ut.meta.clones.filtered <- dtp.ut.meta.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
-
-ut.cellular.dtp.df <- merge(dtp.ut.meta.clones.filtered, tmp, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp2, ut.cellular.states, ut.cellular.states.perc, ut.cellular.states.ss,
-   ut.cellular.states.ss.df, ut.cellular.states.ss.T2, ut.cellular.states.summary,
-   dtp.ut.meta.clones, dtp.ut.meta.clones.filtered, dim1.gg, dim2.gg, dim3.gg)
-gc()
-
-#Visualise for ggalluvial
-#Remove datapoints with no information at T2
-ut.dtp.A.df <- ut.cellular.dtp.df %>% filter(Sample == "Neuro_A") %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- ut.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.cellular.A.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Visualise for ggalluvial
-ut.dtp.B.df <- ut.cellular.dtp.df %>% filter(Sample == "Neuro_B") %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- ut.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.cellular.B.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Visualise for ggalluvial
-ut.dtp.C.df <- ut.cellular.dtp.df %>% filter(Sample == "Neuro_C") %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- ut.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.cellular.C.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, ut.dtp.A, ut.dtp.B, ut.dtp.C,
-   distinct.ut.A.barcodes, distinct.ut.B.barcodes, distinct.ut.C.barcodes, ut.all.barcodes,
-   ut.T2.barcodes, ut.dtp.A.df, ut.dtp.B.df, ut.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-ut.dtp.cellular.A.df <- ut.dtp.cellular.A.df %>% filter(Sample == "Neuro_A")
-ut.dtp.cellular.B.df <- ut.dtp.cellular.B.df %>% filter(Sample == "Neuro_B")
-ut.dtp.cellular.C.df <- ut.dtp.cellular.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- ut.dtp.cellular.A.df$real_bc44
-B <- ut.dtp.cellular.B.df$real_bc44
-C <- ut.dtp.cellular.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(ut.dtp.cellular.A.df, ut.dtp.cellular.B.df, ut.dtp.cellular.C.df)
-all.ut.cellular.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(ut.dtp.cellular.A.df, ut.dtp.cellular.B.df, ut.dtp.cellular.C.df)
-gc()
-
-#Generate colour palette for seurat_clusters_0.2
-P9 <- c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA")
-P9 <- as.vector(t(matrix(P9)))
-names(P9) = c("0", "1", "2", "3", "4", "5", "6", "7", "8")
-
-
-####
-#UT AMT states
-ut.amt.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "Untreated_rec") %>%
-  select(c(AMT.state, Sample, real_bc44, Condition, Count))
-
-ut.amt.dtp.df <- ut.amt.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- ut.amt.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
-  ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "Untreated_rec"] <- "T2"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(AMT.state))
-
-ut.amt.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-ut.amt.states.summary <- ut.amt.states %>%
-  filter(Condition == "Untreated_rec")
-
-#Calculate percentage of clones with each representation
-ut.amt.states.perc <- ut.amt.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
-  ungroup()
-
-set.seed(12)
-P3 = createPalette(3, c("#ff0000", "#00ff00", "#0000ff"), M=10)
-P3 <- as.vector(t(matrix(P3)))
-names(P3) = unique(as.character(ut.amt.states.perc$count))
-
-ut.amt.states.perc$count <- as.character(ut.amt.states.perc$count)
-
-#Plot manuscript exteneded figure 7c - UT
-ut.amt.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("UT Recovery AMT states Clone Summary")+
-  scale_fill_manual(values = P3)+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
-
-#Define clones which are only observed in one cellular state within untreated
-ut.amt.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
-
-ut.amt.states.ss.df <- merge(ut.amt.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(ut.amt.states.ss.df$real_bc44)) #315 clones
-
-ut.amt.states.ss.T2 <- ut.amt.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-ut.amt.states.ss.T2$clone_state <- NA
-
-dtp.ut.amt.clones <- ut.amt.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T2", "DTP", clone_state))
-
-dtp.ut.amt.clones.filtered <- dtp.ut.amt.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
-
-ut.amt.dtp.df <- merge(dtp.ut.amt.clones.filtered, tmp, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp2, ut.amt.states, ut.amt.states.perc, ut.amt.states.ss,
-   ut.amt.states.ss.df, ut.amt.states.ss.T2, ut.amt.states.summary,
-   dtp.ut.amt.clones, dtp.ut.amt.clones.filtered)
-gc()
-
-#Visualise for ggalluvial
-ut.dtp.A.df <- ut.amt.dtp.df %>% filter(Sample == "Neuro_A") %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- ut.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.amt.A.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Visualise for ggalluvial
-ut.dtp.B.df <- ut.amt.dtp.df %>% filter(Sample == "Neuro_B") %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- ut.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.amt.B.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Visualise for ggalluvial
-ut.dtp.C.df <- ut.amt.dtp.df %>% filter(Sample == "Neuro_C") %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- ut.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-ut.dtp.amt.C.df <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, ut.dtp.A, ut.dtp.B, ut.dtp.C,
-   distinct.ut.A.barcodes, distinct.ut.B.barcodes, distinct.ut.C.barcodes, ut.all.barcodes,
-   ut.T2.barcodes, ut.dtp.A.df, ut.dtp.B.df, ut.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-ut.dtp.amt.A.df <- ut.dtp.amt.A.df %>% filter(Sample == "Neuro_A")
-ut.dtp.amt.B.df <- ut.dtp.amt.B.df %>% filter(Sample == "Neuro_B")
-ut.dtp.amt.C.df <- ut.dtp.amt.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- ut.dtp.amt.A.df$real_bc44
-B <- ut.dtp.amt.B.df$real_bc44
-C <- ut.dtp.amt.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(ut.dtp.amt.A.df, ut.dtp.amt.B.df, ut.dtp.amt.C.df)
-all.ut.amt.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(ut.dtp.amt.A.df, ut.dtp.amt.B.df, ut.dtp.amt.C.df)
-gc()
-
-#To counteract the overlap of cloens between replicates
-#Make new variable which is barcode + replicate
-all.ut.amt.dtp.df <- all.ut.amt.dtp.df %>% mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-all.ut.cellular.dtp.df <- all.ut.cellular.dtp.df %>%mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-
-# scRNA-seq barcodes - Alluvial Untreated Plots 
-#Visulaise all informaito for cellular clusters and AMT states
-all.ut.amt.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "grey", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 3)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-all.ut.cellular.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "grey", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 3)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values=P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-all.ut.amt.dtp.df %>%
-  filter(Condition == "Untreated_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "grey", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 3)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-all.ut.cellular.dtp.df %>%
-  filter(Condition == "Untreated_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "grey", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 3)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values=P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-
-#Make compiled list of clones to generate JQ1 colour palette for barcodes
-amt.list <- unique(all.ut.amt.dtp.df$barcode_rep)
-cellular.list <- unique(all.ut.cellular.dtp.df$barcode_rep)
-ut.dtp.barcodes <- c(amt.list, cellular.list)
-unique.ut.dtp.barcodes <- unique(ut.dtp.barcodes)
-
-#Generate barcode palette
-set.seed(12)
-ut_palette = createPalette(234, c("#ff0000", "#00ff00", "#0000ff"))
+ut_palette = createPalette(382, c("#ff0000", "#00ff00", "#0000ff"))
 ut_palette <- as.vector(t(matrix(ut_palette)))
-names(ut_palette) = unique(as.character(ut.dtp.barcodes))
+names(ut_palette) = unique(as.character(meta.df$real_bc44))
 
-#Plot manuscript extended figure 7e
-all.ut.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+#Edit names now
+unique(meta.df$Condition)
+meta.df$Condition <- as.character(meta.df$Condition)
+meta.df$Condition[meta.df$Condition == "Cisplatin_1weeksOFF"] <- "Cisplatin_1weekOFF"
 
-#Plot manuscript extended figure 7e
-all.ut.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+meta.df$description[meta.df$description == "Cisplatin_1weeksOFF C"] <- "Cisplatin_1weekOFF C"
+meta.df$description[meta.df$description == "Cisplatin_1weeksOFF B"] <- "Cisplatin_1weekOFF B"
+meta.df$description[meta.df$description == "Cisplatin_4weekOFF B"] <- "Cisplatin_4weeksOFF B"
+meta.df$description[meta.df$description == "Cisplatin_4weekOFF C"] <- "Cisplatin_4weeksOFF C"
 
-#Plot manuscript extended figure 7e
-all.ut.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+meta.df$Condition <- as.factor(meta.df$Condition)
+unique(meta.df$Condition)
 
-#Plot manuscript extended figure 7e
-all.ut.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = ut_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
+## Visualise phenotypic plasticity of lineages across conditions ----
+#Remove unnecessary variables
+subset.meta.df <- meta.df %>% dplyr::select(c(real_bc44, CellID, AMT.state, Condition, description, replicate))
 
-#AMT
-#Plot manuscript extended figure 7f
-all.ut.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+length(unique(subset.meta.df$CellID)) #74891 cells total
+length(unique(subset.meta.df$CellID[!is.na(subset.meta.df$real_bc44)])) #29285 cells total  with barcode information
 
-#Plot manuscript extended figure 7f
-all.ut.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+#Remove information without barcodes
+subset.meta.df <- subset.meta.df %>% filter(!is.na(real_bc44))
+length(unique(subset.meta.df$real_bc44)) #381 lineages
 
-#Plot manuscript extended figure 7f
-all.ut.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
+#Remove clones which do not appear more than 3 times
+subset.meta.df <- subset.meta.df %>%
+  group_by(real_bc44, description) %>%
+  mutate(count = n()) %>%
+  filter(count >= 3) %>%
+  select(-c(count))
 
-#Plot manuscript extended figure 7f
-all.ut.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Untreated_rec"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = ut_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
+length(unique(subset.meta.df$CellID)) #28258 cells total
+length(unique(subset.meta.df$real_bc44)) #200 cells total - therefore loosing 52% of clones
 
-# scRNA-seq barcodes - Untreated Naive Dynamics
-ut.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated") %>%
-  select(c(AMT.state, Sample, real_bc44, Condition, Count))
+# Count unique real_bc44 per description
+result <- subset.meta.df %>%
+  group_by(description) %>%
+  summarise(unique_real_bc44_count = n_distinct(real_bc44))
 
-ut.dtp.df <- ut.dtp.df[, c(3, 4, 1, 2, 5)]
+#Visualise results
+print(result)
 
-tmp <- ut.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
-  ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(AMT.state))
-
-ut.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-ut.states.perc <- ut.states %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
+#Compute how many cell states are present for each clone in each condition
+summary.df <- subset.meta.df %>%
+  group_by(real_bc44, description, Condition) %>%
+  summarize(num_cell_states = n_distinct(AMT.state)) %>%
   ungroup()
 
-ut.states.perc$count <- as.character(ut.states.perc$count)
-
-#Plot manuscript extended figure 7a
-ut.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("UT AMT states Clone Summary")+
-  scale_fill_manual(values = P3)+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
-
-ut.states.perc <- ut.states.perc %>%
-  group_by(count) %>%
-  mutate(avg_perc = mean(perc))
-
-library(ggforce)
-#Plot manuscript extended figure 7b
-ut.states.perc %>%
-  ggplot( ,aes(x=count, y=perc))+
-  geom_boxplot(aes(x=count, y=perc, colour=count)) +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("UT AMT states Clone Summary")+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        aspect.ratio = 2)
-
-rm(ut.cellular.dtp.df, ut.dtp.df, ut.states, ut.states.perc,
-   tmp, tmp2, test, unique.ut.dtp.barcodes, ut.dtp.barcodes)
-gc()
-
-
-# scRNA-seq barcodes - Alluvial Cisplatin Initial
-cisplatin.cellular.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "Cisplatin" | Condition == "Cisplatin_rec") %>%
-  select(c(seurat_clusters.0.2, Sample, real_bc44, Condition, Count))
-
-cisplatin.cellular.dtp.df <- cisplatin.cellular.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- cisplatin.cellular.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
+prop.df <- summary.df %>%
+  group_by(description, Condition) %>%
+  mutate(total = n()) %>%
   ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "Cisplatin"] <- "T2"
-tmp$timepoint[tmp$Condition == "Cisplatin_rec"] <- "T3"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(seurat_clusters.0.2))
-
-cis.cellular.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-cis.cellular.states.summary <- cis.cellular.states %>%
-  filter(Condition == "Cisplatin_rec")
-
-#Calculate percentage of clones with each representation
-cis.cellular.states.perc <- cis.cellular.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
+  group_by(num_cell_states, description, Condition) %>%
+  mutate(count = n(),
+         proportion = count / total) %>%
   ungroup()
 
-#Define colour palette for states
-set.seed(12)
-P8 = createPalette(8, c("#ff0000", "#00ff00", "#0000ff"), M=10)
-P8 <- as.vector(t(matrix(P8)))
-names(P8) = unique(as.character(cis.cellular.states.perc$count))
-
-cis.cellular.states.perc$count <- as.character(cis.cellular.states.perc$count)
-
-#Plot manuscript extended figure 7d - Cisplatin
-cis.cellular.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("Cisplatin Recovery Cellular Cluster Clone Summary")+
-  scale_fill_manual(values = P8)+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
-
-#Define clones which are only observed in one cellular state within untreated
-cis.cellular.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
-
-cis.cellular.states.ss.df <- merge(cis.cellular.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(cis.cellular.states.ss.df$real_bc44)) #316 clones
-
-cis.cellular.states.ss.T2 <- cis.cellular.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-cis.cellular.states.ss.T2$clone_state <- NA
-
-dtp.cis.meta.clones <- cis.cellular.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T3", "DTP", clone_state))
-
-dtp.cis.meta.clones.filtered <- dtp.cis.meta.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
-
-cisplatin.cellular.dtp.df <- merge(dtp.cis.meta.clones.filtered, tmp, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp2, cis.cellular.states, cis.cellular.states.perc, cis.cellular.states.ss,
-   cis.cellular.states.ss.df, cis.cellular.states.ss.T2, cis.cellular.states.summary,
-   dtp.cis.meta.clones, dtp.cis.meta.clones.filtered)
-gc()
-
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_A" & cisplatin.cellular.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_A"]
-distinct.cis.A.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.A <- cisplatin.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.A.barcodes))
-
-#Visualise for ggalluvial
-cisplatin.dtp.A.df <- cisplatin.dtp.A %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- cisplatin.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.cellular.A.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_B" & cisplatin.cellular.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_B"]
-distinct.cis.B.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.B <- cisplatin.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.B.barcodes))
-
-#Visualise for ggalluvial
-cisplatin.dtp.B.df <- cisplatin.dtp.B %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- cisplatin.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.cellular.B.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_C" & cisplatin.cellular.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.cellular.dtp.df$real_bc44[cisplatin.cellular.dtp.df$Sample == "Neuro_C"]
-distinct.cis.C.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.C <- cisplatin.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.C.barcodes))
-
-#Visualise for ggalluvial
-cisplatin.dtp.C.df <- cisplatin.dtp.C %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- cisplatin.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.cellular.C.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, tmp.T3, tmp3, test.merge, cisplatin.dtp.A, cisplatin.dtp.B, cisplatin.dtp.C,
-   distinct.cis.A.barcodes, distinct.cis.B.barcodes, distinct.cis.C.barcodes, cis.all.barcodes,
-   cis.T2.barcodes, cisplatin.dtp.A.df, cisplatin.dtp.B.df, cisplatin.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-cisplatin.dtp.cellular.A.df <- cisplatin.dtp.cellular.A.df %>% filter(Sample == "Neuro_A")
-cisplatin.dtp.cellular.B.df <- cisplatin.dtp.cellular.B.df %>% filter(Sample == "Neuro_B")
-cisplatin.dtp.cellular.C.df <- cisplatin.dtp.cellular.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- cisplatin.dtp.cellular.A.df$real_bc44
-B <- cisplatin.dtp.cellular.B.df$real_bc44
-C <- cisplatin.dtp.cellular.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(cisplatin.dtp.cellular.A.df, cisplatin.dtp.cellular.B.df, cisplatin.dtp.cellular.C.df)
-all.cisplatin.cellular.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(cisplatin.dtp.cellular.A.df, cisplatin.dtp.cellular.B.df, cisplatin.dtp.cellular.C.df, cisplatin.dtp.cellular.df,
-   cisplatin.dtp.cellular, cisplatin.dtp.filtered, dtp.cis.meta.clones.filtered)
-gc()
-
-#Generate colour palette for seurat_clusters_0.2
-P9 <- c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA")
-P9 <- as.vector(t(matrix(P9)))
-names(P9) = c("0", "1", "2", "3", "4", "5", "6", "7", "8")
-
-####
-#Cisplatin AMT states
-cisplatin.amt.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "Cisplatin" | Condition == "Cisplatin_rec") %>%
-  select(c(AMT.state, Sample, real_bc44, Condition, Count))
-
-cisplatin.amt.dtp.df <- cisplatin.amt.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- cisplatin.amt.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
+#Summarise the number of lineages 
+sum <- prop.df %>%
+  group_by(description, num_cell_states) %>%
+  summarise(count = n()) %>%
   ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
+  group_by(description) %>%
+  mutate(total = sum(count))
 
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "Cisplatin"] <- "T2"
-tmp$timepoint[tmp$Condition == "Cisplatin_rec"] <- "T3"
+write.csv(sum, "datafiles/number_of_barcodes_per_cell_state_group_new.csv")
 
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(AMT.state))
+#Remove duplicated information
+plot.prop.df <- prop.df %>%
+  dplyr::select(-c(real_bc44, total, count)) %>%
+  distinct()
 
-cis.amt.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
+plot.prop.df$num_cell_states <- as.character(plot.prop.df$num_cell_states)
 
-cis.amt.states.summary <- cis.amt.states %>%
-  filter(Condition == "Cisplatin_rec")
+#Set plotting variables
+conditions <- c("POT A", "POT B", "POT C", 
+                "UT A", "UT B", "UT C", 
+                "JQ1_ON A", "JQ1_ON B", "JQ1_ON C", 
+                "JQ1_OFF A", "JQ1_OFF B", "JQ1_OFF C",
+                "EZH2i_ON A", "EZH2i_ON B", "EZH2i_ON C", 
+                "EZH2i_OFF A", "EZH2i_OFF B", "EZH2i_OFF C", 
+                "CHIR99021_ON A", "CHIR99021_ON B", "CHIR99021_ON C",
+                "CHIR99021_OFF A", "CHIR99021_OFF B", "CHIR99021_OFF C",
+                "Cisplatin(1)_ON A", "Cisplatin(1)_ON B", "Cisplatin(1)_ON C",
+                "Cisplatin(2)_ON A", "Cisplatin(2)_ON B", "Cisplatin(2)_ON C",
+                "Cisplatin_1weekOFF A", "Cisplatin_1weekOFF B", "Cisplatin_1weekOFF C",
+                "Cisplatin_4weeksOFF A", "Cisplatin_4weeksOFF B", "Cisplatin_4weeksOFF C")
 
-#Calculate percentage of clones with each representation
-cis.amt.states.perc <- cis.amt.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
+
+# Reorder the Category variable based on the custom order
+plot.prop.df$description <- factor(plot.prop.df$description, levels = conditions)
+
+plot.prop.df %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "summary", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave("plots/plasticty_lineages_summary_prop_new.pdf", width = 12, height = 5)
+
+#Visualise all experimental arms
+p1 <- plot.prop.df %>%
+  filter(Condition == "POT" | Condition == "Untreated") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("Untreated Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p1, "plots/plasticty_lineages_summary_prop_UT_new.pdf", width = 7, height = 5)
+
+p2 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "JQ1_ON" | Condition == "JQ1_OFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("BRD4i Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p2, "plots/plasticty_lineages_summary_prop_BRD4i_new.pdf", width = 7, height = 5)
+
+p3 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "EZH2i_ON" | Condition == "EZH2i_OFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("EZH2i Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p3, "plots/plasticty_lineages_summary_prop_EZH2i_new.pdf", width = 7, height = 5)
+
+p4 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin(1)_ON" | Condition == "Cisplatin_1weekOFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("Cisplatin Short-Recovery Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p4, "plots/plasticty_lineages_summary_prop_Cis1_new.pdf", width = 7, height = 5)
+
+p5 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin(2)_ON" | Condition == "Cisplatin_4weeksOFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("Cisplatin Long-Recovery Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p5, "plots/plasticty_lineages_summary_prop_Cis2_new.pdf", width = 7, height = 5)
+
+p6 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "CHIR99021_ON" | Condition == "CHIR99021_OFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("CHIR99021 Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p6, "plots/plasticty_lineages_summary_prop_CHIR99021_new.pdf", width = 7, height = 5)
+
+p7 <- plot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin(2)_ON" | 
+           Condition == "Cisplatin_1weekOFF" | Condition == "Cisplatin_4weeksOFF") %>%
+  ggplot( aes(x = description, y = proportion, fill = num_cell_states)) +
+  geom_bar(stat = "identity", position = "stack", colour = "black", aes(x = description, y = proportion, fill = num_cell_states)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  ggtitle("Cisplatin Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p7, "plots/plasticty_lineages_summary_prop_Cis_AL_newL.pdf", width = 7, height = 5)
+
+p1 + p2 + p3 + p4 + p5 + p7
+ggsave("plots/plasticty_lineages_summary_prop_all_new.pdf", width = 12, height = 7)
+
+#Create boxplots to compare SD of each condition
+#Calculate mean and SD for each condition
+boxplot.prop.df <- plot.prop.df %>%
+  dplyr::select(-description) %>%
+  group_by(Condition, num_cell_states) %>%
+  mutate(mean = mean(proportion),
+         SD = sd(proportion)) %>%
   ungroup()
 
-#Define colour palette for states
-set.seed(12)
-P3 = createPalette(3, c("#ff0000", "#00ff00", "#0000ff"), M=10)
-P3 <- as.vector(t(matrix(P3)))
-names(P3) = unique(as.character(cis.amt.states.perc$count))
+#Set plotting variables
+samples <- c("POT", 
+             "Untreated",
+             "JQ1_ON",
+             "JQ1_OFF",
+             "EZH2i_ON", 
+             "EZH2i_OFF",
+             "CHIR99021_ON",
+             "CHIR99021_OFF",
+             "Cisplatin(1)_ON",
+             "Cisplatin(2)_ON",
+             "Cisplatin_1weekOFF",
+             "Cisplatin_4weeksOFF")
 
-cis.amt.states.perc$count <- as.character(cis.amt.states.perc$count)
 
-#Plot manuscript extanded figure 7c - Cisplatin
-cis.amt.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  scale_fill_manual(values = P3)+
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("Cisplatin Recovery AMT states Clone Summary")+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
+# Reorder the Category variable based on the custom order
+boxplot.prop.df$Condition <- factor(boxplot.prop.df$Condition, levels = samples)
 
-#Define clones which are only observed in one cellular state within untreated
-cis.amt.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
+p1 <- boxplot.prop.df %>%
+  filter(Condition == "POT" | Condition == "Untreated") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("Untreated Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p1, "plots/plasticty_lineages_summary_prop_UT_boxplot_new.pdf", width = 7, height = 5)
 
-cis.amt.states.ss.df <- merge(cis.amt.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(cis.amt.states.ss.df$real_bc44)) #154 clones
+p2 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "JQ1_ON" | Condition == "JQ1_OFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("BRD4i Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p2, "plots/plasticty_lineages_summary_prop_BRD4i_boxplot_new.pdf", width = 7, height = 5)
 
-cis.amt.states.ss.T2 <- cis.amt.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-cis.amt.states.ss.T2$clone_state <- NA
+p3 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "EZH2i_ON" | Condition == "EZH2i_OFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("EZH2i Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p3, "plots/plasticty_lineages_summary_prop_EZH2i_boxplot_new.pdf", width = 7, height = 5)
 
-dtp.cis.amt.clones <- cis.amt.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T3", "DTP", clone_state))
+p4 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin(1)_ON" | Condition == "Cisplatin_1weekOFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("Cisplatin Short-Recovery Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p4, "plots/plasticty_lineages_summary_prop_Cis1_boxplot_new.pdf", width = 7, height = 5)
 
-dtp.cis.amt.clones.filtered <- dtp.cis.amt.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
+p5 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin(2)_ON" | Condition == "Cisplatin_4weeksOFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("Cisplatin Long-Recovery Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p5, "plots/plasticty_lineages_summary_prop_Cis2_boxplot_new.pdf", width = 7, height = 5)
 
-cisplatin.amt.dtp.df <- merge(dtp.cis.amt.clones.filtered, tmp, by=c("real_bc44", "Sample"))
+p6 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "CHIR99021_ON" | Condition == "CHIR99021_OFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("CHIR99021 Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p6, "plots/plasticty_lineages_summary_prop_CHIR99021_boxplot_new.pdf", width = 7, height = 5)
 
-#Clean up files
-rm(tmp, tmp2, cis.amt.states, cis.amt.states.perc, cis.amt.states.ss,
-   cis.amt.states.ss.df, cis.amt.states.ss.T2, cis.amt.states.summary,
-   dtp.cis.amt.clones, dtp.cis.amt.clones.filtered)
-gc()
+p7 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin_1weekOFF" | 
+           Condition == "Cisplatin(2)_ON" | Condition == "Cisplatin_4weeksOFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("Cisplatin Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p7, "plots/plasticty_lineages_summary_prop_Cis_ALL_boxplot_new.pdf", width = 7, height = 5)
 
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_A" & cisplatin.amt.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_A"]
-distinct.cis.A.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.A <- cisplatin.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.A.barcodes))
+p1 + p2 + p3 + p4 + p5 + p7
+ggsave("plots/plasticty_lineages_summary_prop_all_boxplot_new.pdf", width = 12, height = 7)
 
-#Visualise for ggalluvial
-cisplatin.dtp.A.df <- cisplatin.dtp.A %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
+p1 + p2 + p3 + p4 + p5 + p6 + p7
+ggsave("plots/plasticty_lineages_summary_prop_all+chir_boxplot_new.pdf", width = 12, height = 10)
 
-tmp <- cisplatin.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
+#Conduct stats between conditions for visualisation
+#Insert 0 values for conditions which do not appear
+# Create all possible combinations of 'group' and 'condition'
+complete_df <- expand.grid(description = unique(plot.prop.df$description),
+                           num_cell_states = unique(plot.prop.df$num_cell_states))
+
+# Merge with the original dataset
+df_complete <- merge(complete_df, plot.prop.df, by = c("description", "num_cell_states"), all.x = TRUE)
+
+# Replace NA values in 'value' column with 0
+df_complete$proportion[is.na(df_complete$proportion)] <- 0
+
+#Fill in lost values
+df_complete$Condition[df_complete$description == "Cisplatin(1)_ON B"] <- "Cisplatin(1)_ON"
+df_complete$Condition[df_complete$description == "Cisplatin(1)_ON C"] <- "Cisplatin(1)_ON"
+df_complete$Condition[df_complete$description == "Cisplatin(2)_ON A"] <- "Cisplatin(2)_ON"
+df_complete$Condition[df_complete$description == "Cisplatin(2)_ON C"] <- "Cisplatin(2)_ON"
+
+#Conduct statistical test between Treatments at each timepoint
+n_sample <- unique(df_complete$Condition)
+n_group <- unique(df_complete$num_cell_states)
+
+first = T
+for (i in 1:length(n_sample)) {
+  for(j in 1:length(n_sample)){
+    for (k in 1:length(n_group)) {
+      
+      if(i > j){  
+        
+        tmp = t.test(df_complete$proportion[df_complete$Condition==n_sample[i] & df_complete$num_cell_states==n_group[k]],
+                     df_complete$proportion[df_complete$Condition==n_sample[j] & df_complete$num_cell_states==n_group[k]])
+        
+        if(first){
+          df_pval = data.frame(GroupA = n_sample[i],
+                               GroupB = n_sample[j],
+                               Cell_Group = n_group[k],
+                               pvalue = tmp$p.value)
+          first = F
+        } else {
+          df_pval = rbind.data.frame(df_pval,
+                                     data.frame(GroupA = n_sample[i],
+                                                GroupB = n_sample[j],
+                                                Cell_Group = n_group[k],
+                                                pvalue = tmp$p.value))
+        }
+      }
+    }
+  }
+}
+
+#Conduct stats per experimental arm
+UT_df_pval <- df_pval %>%
+  filter((GroupA == "POT" | GroupB == "POT") & (GroupA == "Untreated" | GroupB == "Untreated"))
+
+results <- UT_df_pval %>%
+  mutate(signif_value = ifelse(UT_df_pval$pvalue < 0.001, "***", 
+                               ifelse(UT_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(UT_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "UT_cellular_cluster_stats_new.csv")
+
+#Conduct stats per experimental arm
+Cis_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "Cisplatin(1)_ON" | GroupA == "Cisplatin_1weekOFF"))
+
+results <- Cis_df_pval %>%
+  mutate(signif_value = ifelse(Cis_df_pval$pvalue < 0.001, "***", 
+                               ifelse(Cis_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(Cis_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "Cis_short_cellular_cluster_stats_new.csv")
+
+#Conduct stats per experimental arm
+Cis_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "Cisplatin(2)_ON" | GroupA == "Cisplatin_4weeksOFF"))
+
+results <- Cis_df_pval %>%
+  mutate(signif_value = ifelse(Cis_df_pval$pvalue < 0.001, "***", 
+                               ifelse(Cis_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(Cis_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "Cis_long_cellular_cluster_stats_new.csv")
+
+#Conduct stats per experimental arm
+Cis_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "Cisplatin(2)_ON" | GroupA == "Cisplatin_4weeksOFF"
+                                  | GroupA == "Cisplatin(1)_ON" | GroupA == "Cisplatin_1weekOFF"))
+
+results <- Cis_df_pval %>%
+  mutate(signif_value = ifelse(Cis_df_pval$pvalue < 0.001, "***", 
+                               ifelse(Cis_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(Cis_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "Cis_all_cellular_cluster_stats_new.csv")
+
+#Conduct stats per experimental arm
+BRD4i_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "JQ1_ON" | GroupA == "JQ1_OFF"))
+
+results <- BRD4i_df_pval %>%
+  mutate(signif_value = ifelse(BRD4i_df_pval$pvalue < 0.001, "***", 
+                               ifelse(BRD4i_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(BRD4i_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "BRD4i_cellular_cluster_stats_new.csv")
+
+#Conduct stats per experimental arm
+EZH2i_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "EZH2i_ON" | GroupA == "EZH2i_OFF"))
+
+results <- EZH2i_df_pval %>%
+  mutate(signif_value = ifelse(EZH2i_df_pval$pvalue < 0.001, "***", 
+                               ifelse(EZH2i_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(EZH2i_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "EZH2i_cellular_cluster_stats_new.csv")
+
+#CHIR99021
+CHIR_df_pval <- df_pval %>%
+  filter(GroupB == "Untreated" & (GroupA == "CHIR99021_ON" | GroupA == "CHIR99021_OFF"))
+
+results <- CHIR_df_pval %>%
+  mutate(signif_value = ifelse(CHIR_df_pval$pvalue < 0.001, "***", 
+                               ifelse(CHIR_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(CHIR_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "CHIR_cellular_cluster_stats_new.csv")
+
+
+#Repeat but with combined Cispaltin replicates
+plot.prop.df$Condition <- as.character(plot.prop.df$Condition)
+plot.prop.df$description <- as.character(plot.prop.df$description)
+plot.prop.df$Condition[plot.prop.df$Condition == "Cisplatin(1)_ON"] <- "Cisplatin_ON"
+plot.prop.df$Condition[plot.prop.df$Condition == "Cisplatin(2)_ON"] <- "Cisplatin_ON"
+
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(1)_ON A"] <- "Cisplatin_ON A"
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(1)_ON B"] <- "Cisplatin_ON B"
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(1)_ON C"] <- "Cisplatin_ON C"
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(2)_ON A"] <- "Cisplatin_ON A"
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(2)_ON B"] <- "Cisplatin_ON B"
+plot.prop.df$description[plot.prop.df$description == "Cisplatin(2)_ON C"] <- "Cisplatin_ON C"
+
+#Calculate mean and SD for each condition
+boxplot.prop.df <- plot.prop.df %>%
+  dplyr::select(-description) %>%
+  group_by(Condition, num_cell_states) %>%
+  mutate(mean = mean(proportion),
+         SD = sd(proportion)) %>%
+  ungroup()
+
+#Set plotting variables
+samples <- c("POT", 
+             "Untreated",
+             "JQ1_ON",
+             "JQ1_OFF",
+             "EZH2i_ON", 
+             "EZH2i_OFF",
+             "CHIR99021_ON",
+             "CHIR99021_OFF",
+             "Cisplatin_ON",
+             "Cisplatin_1weekOFF",
+             "Cisplatin_4weeksOFF")
+
+
+# Reorder the Category variable based on the custom order
+boxplot.prop.df$Condition <- factor(boxplot.prop.df$Condition, levels = samples)
+
+p7 <- boxplot.prop.df %>%
+  filter(Condition == "Untreated" | Condition == "Cisplatin_1weekOFF" | 
+           Condition == "Cisplatin_ON" | Condition == "Cisplatin_4weeksOFF") %>%
+  ggplot(aes(x = Condition, y = proportion, fill = num_cell_states)) +
+  geom_boxplot(color = "black", aes(ymin = mean - SD, ymax = mean + SD)) +
+  geom_point(position = position_dodge(0.75)) +
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  expand_limits(y=c(0,1)) +
+  ggtitle("Cisplatin Arm") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+ggsave(plot = p7, "plots/plasticty_lineages_summary_prop_v2_Cis_ALL_boxplot_new.pdf", width = 7, height = 5)
+
+
+#Conduct stats between conditions for visualisation
+#Insert 0 values for conditions which do not appear
+# Create all possible combinations of 'group' and 'condition'
+complete_df <- expand.grid(description = unique(plot.prop.df$description),
+                           num_cell_states = unique(plot.prop.df$num_cell_states))
+
+# Merge with the original dataset
+df_complete <- merge(complete_df, plot.prop.df, by = c("description", "num_cell_states"), all.x = TRUE)
+
+# Replace NA values in 'value' column with 0
+df_complete$proportion[is.na(df_complete$proportion)] <- 0
+
+#Fill in lost values
+df_complete$Condition[df_complete$description == "Cisplatin_ON C"] <- "Cisplatin_ON"
+
+#Conduct statistical test between Treatments at each timepoint
+n_sample <- unique(df_complete$Condition)
+n_group <- unique(df_complete$num_cell_states)
+
+first = T
+for (i in 1:length(n_sample)) {
+  for(j in 1:length(n_sample)){
+    for (k in 1:length(n_group)) {
+      
+      if(i > j){  
+        
+        tmp = t.test(df_complete$proportion[df_complete$Condition==n_sample[i] & df_complete$num_cell_states==n_group[k]],
+                     df_complete$proportion[df_complete$Condition==n_sample[j] & df_complete$num_cell_states==n_group[k]])
+        
+        if(first){
+          df_pval = data.frame(GroupA = n_sample[i],
+                               GroupB = n_sample[j],
+                               Cell_Group = n_group[k],
+                               pvalue = tmp$p.value)
+          first = F
+        } else {
+          df_pval = rbind.data.frame(df_pval,
+                                     data.frame(GroupA = n_sample[i],
+                                                GroupB = n_sample[j],
+                                                Cell_Group = n_group[k],
+                                                pvalue = tmp$p.value))
+        }
+      }
+    }
+  }
+}
+
+#Conduct stats per experimental arm
+Cis_df_pval <- df_pval %>%
+  filter((GroupB == "Untreated" | GroupB == "Cisplatin_ON" | GroupB == "Cisplatin_4weeksOFF" | GroupB == "Cisplatin_1weekOFF" ) & 
+           (GroupA == "Cisplatin_ON" | GroupA == "Cisplatin_4weeksOFF" | GroupA == "Cisplatin_1weekOFF" | GroupA == "Untreated"))
+
+results <- Cis_df_pval %>%
+  mutate(signif_value = ifelse(Cis_df_pval$pvalue < 0.001, "***", 
+                               ifelse(Cis_df_pval$pvalue <= 0.01, "**",
+                                      ifelse(Cis_df_pval$pvalue <= 0.05, "*", "NA"))))
+
+write.csv(results, "datafiles/SK-N-SH_only/clone_dynamics/Cis_all_v2_cellular_cluster_stats_new.csv")
+
+
+## ggalluvial plots for each condition - POT Single data ----
+#summary.df currently has the barcodes in each condition and how many states they appear in
+#Assign replicate values correctly
+analysis.df <- meta.df %>% filter(Condition == "POT" & !is.na(real_bc44))
+length(unique(analysis.df$real_bc44[analysis.df$Condition == "POT" & (!(is.na(analysis.df$real_bc44)))])) #110 clones
+
+#Summarise how many of these clones are in different cellular clusters
+#Calculate the total clonal frequency within each replicate and condition, and therefore its proportion within each sample
+test <- analysis.df %>%
+  group_by(real_bc44) %>%
+  mutate(clones_count = n(),
+         total_clones = sum(clones_count),
+         percentage = clones_count/total_clones * 100) %>% 
+  ungroup() %>%
+  dplyr::select(c(real_bc44, CellID, AMT.state, Condition))
+
+#Calculate total frequency of each clone within POT and Untreated conditions
+tmp <- test %>%
+  group_by(real_bc44, Condition) %>%
   mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
+  tidyr::pivot_wider(names_from = Condition, values_from = AMT.state) %>%
+  select(-row) %>%
+  ungroup() %>%
+  group_by(real_bc44, POT) %>%
+  mutate(count = n()) %>%
+  ungroup()
 
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
+#Filter summary.df for condition of interest
+barcodes <- summary.df %>% filter(Condition == "POT") %>% dplyr::select(-c(description, Condition))
 
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
+#Check presence of all barcodes in each dataframe - should be same as clone number above; POT 110 clones
+length(intersect(barcodes$real_bc44, tmp$real_bc44)) #81
 
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
+#Merge two dataframes
+intersect(colnames(tmp), colnames(barcodes))
+state.df <- left_join(barcodes, tmp, by = c("real_bc44"), relationship = "many-to-many")
 
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.amt.A.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_B" & cisplatin.amt.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_B"]
-distinct.cis.B.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.B <- cisplatin.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.B.barcodes))
-
-#Visualise for ggalluvial
-cisplatin.dtp.B.df <- cisplatin.dtp.B %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- cisplatin.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.amt.B.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-cis.T2.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_C" & cisplatin.amt.dtp.df$timepoint == "T2"]
-cis.all.barcodes <- cisplatin.amt.dtp.df$real_bc44[cisplatin.amt.dtp.df$Sample == "Neuro_C"]
-distinct.cis.C.barcodes <- c(setdiff(cis.all.barcodes, cis.T2.barcodes), setdiff(cis.T2.barcodes, cis.all.barcodes))
-cisplatin.dtp.C <- cisplatin.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.cis.C.barcodes))
-
-#Visualise for ggalluvial
-cisplatin.dtp.C.df <- cisplatin.dtp.C %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- cisplatin.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-cisplatin.dtp.amt.C.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, tmp.T3, test.merge, cisplatin.dtp.A, cisplatin.dtp.B, cisplatin.dtp.C,
-   distinct.cis.A.barcodes, distinct.cis.B.barcodes, distinct.cis.C.barcodes, cis.all.barcodes,
-   cis.T2.barcodes, cisplatin.dtp.A.df, cisplatin.dtp.B.df, cisplatin.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-cisplatin.dtp.amt.A.df <- cisplatin.dtp.amt.A.df %>% filter(Sample == "Neuro_A")
-cisplatin.dtp.amt.B.df <- cisplatin.dtp.amt.B.df %>% filter(Sample == "Neuro_B")
-cisplatin.dtp.amt.C.df <- cisplatin.dtp.amt.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- cisplatin.dtp.amt.A.df$real_bc44
-B <- cisplatin.dtp.amt.B.df$real_bc44
-C <- cisplatin.dtp.amt.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(cisplatin.dtp.amt.A.df, cisplatin.dtp.amt.B.df, cisplatin.dtp.amt.C.df)
-all.cisplatin.amt.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(cisplatin.dtp.amt.A.df, cisplatin.dtp.amt.B.df, cisplatin.dtp.amt.C.df, cisplatin.dtp.amt.df,
-   cisplatin.dtp.amt, cisplatin.dtp.filtered, dtp.cis.meta.clones.filtered)
-gc()
-
-#To counteract the overlap of cloens between replicates
-#Make new variable which is barcode + replicate
-all.cisplatin.amt.dtp.df <- all.cisplatin.amt.dtp.df %>%
-  mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-
-all.cisplatin.cellular.dtp.df <- all.cisplatin.cellular.dtp.df %>%
-  mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-
-#Visulaise all information for cellular clusters and AMT states
-#Plot manuscript Figure 4c - left hand panel
-all.cisplatin.amt.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript Figure 4b - left hand panel
-all.cisplatin.cellular.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values= P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript Figure 4c - right hand panel
-all.cisplatin.amt.dtp.df %>%
-  filter(Condition == "Cisplatin_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("Cisplatin_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript Figure 4b - right hand panel
-all.cisplatin.cellular.dtp.df %>%
-  filter(Condition == "Cisplatin_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("Cisplatin_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values=P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Make compiled list of clones to generate Cisplatin colour palette for barcodes
-amt.list <- unique(all.cisplatin.amt.dtp.df$barcode_rep)
-cellular.list <- unique(all.cisplatin.cellular.dtp.df$barcode_rep)
-cisplatin.dtp.barcodes <- c(amt.list, cellular.list)
-unique.cisplatin.dtp.barcodes <- unique(cisplatin.dtp.barcodes)
-
+#Plot ggalluvial to visualise transitions
 #Generate barcode palette
-set.seed(12)
-cisplatin_palette = createPalette(600, c("#ff0000", "#00ff00", "#0000ff"))
-cisplatin_palette <- cisplatin_palette[!(cisplatin_palette %in% ut_palette)]
-cisplatin_palette <- sample(cisplatin_palette, 79, replace=FALSE)
-cisplatin_palette <- as.vector(t(matrix(cisplatin_palette)))
-names(cisplatin_palette) = unique(as.character(cisplatin.dtp.barcodes))
+length(unique(state.df$real_bc44)) #81 clones
 
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
+# Create a factor for real_bc44 based on num_cell_state
+state.df <- state.df %>%
+  arrange(num_cell_states) %>% # Order the rows by num_cell_states
+  mutate(real_bc44 = factor(real_bc44, levels = unique(real_bc44))) 
+
+#Create log value of counts
+state.df$log_count <- log2(state.df$count)
+
+# Add labels for num_cell_states to the left-hand side
+state.df <- state.df %>%
+  mutate(label = as.character(num_cell_states)) # Create labels for num_cell_states
+
+#Remove all other columns
+state.df <- state.df %>% dplyr::select(c(CellID, POT, log_count, count, real_bc44, label))
+
+#Save state.df for downstream analysis so we do not have to regenerate it everytime
+write.csv(state.df, "datafiles/POT_alluvial_data_new.csv")
+
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = POT, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "POT"), expand = c(.2, .05)) +
+  geom_alluvium(aes(fill = POT)) +
+  geom_stratum(width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values = amt.cols) +
   theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
         axis.ticks = element_blank(),
         axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=real_bc44, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T3), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = cisplatin_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
-
-
-#AMT
-#Plot manusctip extended figure 7f - Cisplatin
-all.cisplatin.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=real_bc44, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T3), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manusctip extended figure 7e - Cisplatin
-all.cisplatin.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "Cisplatin", "Cisplatin Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = cisplatin_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
-
-rm(cisplatin.amt.dtp.df, cisplatin.cellular.dtp.df,
-   cisplatin.dtp.barcodes, unique.cisplatin.dtp.barcodes)
-gc()
-
-# scRNA-seq barcodes - Alluvial JQ1 Plots 
-jq1.cellular.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "JQ1" | Condition == "JQ1_rec") %>%
-  select(c(seurat_clusters.0.2, Sample, real_bc44, Condition, Count))
-
-jq1.cellular.dtp.df <- jq1.cellular.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- jq1.cellular.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
-  ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "JQ1"] <- "T2"
-tmp$timepoint[tmp$Condition == "JQ1_rec"] <- "T3"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(seurat_clusters.0.2))
-
-jq1.cellular.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-jq1.cellular.states.summary <- jq1.cellular.states %>%
-  filter(Condition == "JQ1_rec")
-
-#Calculate percentage of clones with each representation
-jq1.cellular.states.perc <- jq1.cellular.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
-  ungroup()
-
-jq1.cellular.states.perc$count <- as.character(jq1.cellular.states.perc$count)
-
-#Plot manuscript extended figure 7d - JQ1
-jq1.cellular.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  ylab("Number of Clones")+
-  ggtitle("JQ1 Recovery Cellular Cluster Clone Summary")+
-  scale_fill_manual(values = P8)+
-  theme_bw()+
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
         legend.key.size = unit(0.5, 'cm'),
         legend.text = element_text(size=8),
         legend.title = element_text(size=8))
+ggsave("plots/pot_alluvial_1_new.pdf", dpi=700, width=5, height=5)
 
-#Define clones which are only observed in one cellular state within untreated
-jq1.cellular.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
-
-jq1.cellular.states.ss.df <- merge(jq1.cellular.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(jq1.cellular.states.ss.df$real_bc44)) #316 clones
-
-jq1.cellular.states.ss.T2 <- jq1.cellular.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-jq1.cellular.states.ss.T2$clone_state <- NA
-
-dtp.jq1.meta.clones <- jq1.cellular.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T3", "DTP", clone_state))
-
-dtp.jq1.meta.clones.filtered <- dtp.jq1.meta.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
-
-jq1.cellular.dtp.df <- merge(dtp.jq1.meta.clones.filtered, tmp, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp2, jq1.cellular.states, jq1.cellular.states.perc, jq1.cellular.states.ss,
-   jq1.cellular.states.ss.df, jq1.cellular.states.ss.T2, jq1.cellular.states.summary,
-   dtp.jq1.meta.clones, dtp.jq1.meta.clones.filtered)
-gc()
-
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_A" & jq1.cellular.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_A"]
-distinct.jq1.A.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.A <- jq1.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.A.barcodes))
-
-#Visualise for ggalluvial
-jq1.dtp.A.df <- jq1.dtp.A %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- jq1.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.cellular.A.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_B" & jq1.cellular.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_B"]
-distinct.jq1.B.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.B <- jq1.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.B.barcodes))
-
-#Visualise for ggalluvial
-jq1.dtp.B.df <- jq1.dtp.B %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- jq1.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.cellular.B.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_C" & jq1.cellular.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.cellular.dtp.df$real_bc44[jq1.cellular.dtp.df$Sample == "Neuro_C"]
-distinct.jq1.C.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.C <- jq1.cellular.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.C.barcodes))
-
-#Visualise for ggalluvial
-jq1.dtp.C.df <- jq1.dtp.C %>% select(c(real_bc44, timepoint, Count, seurat_clusters.0.2, Sample))
-
-tmp <- jq1.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
-  mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = seurat_clusters.0.2) %>%
-  select(-row)
-
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.cellular.C.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, tmp.T3, tmp3, test.merge, jq1.dtp.A, jq1.dtp.B, jq1.dtp.C,
-   distinct.jq1.A.barcodes, distinct.jq1.B.barcodes, distinct.jq1.C.barcodes, jq1.all.barcodes,
-   jq1.T2.barcodes, jq1.dtp.A.df, jq1.dtp.B.df, jq1.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-jq1.dtp.cellular.A.df <- jq1.dtp.cellular.A.df %>% filter(Sample == "Neuro_A")
-jq1.dtp.cellular.B.df <- jq1.dtp.cellular.B.df %>% filter(Sample == "Neuro_B")
-jq1.dtp.cellular.C.df <- jq1.dtp.cellular.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- jq1.dtp.cellular.A.df$real_bc44
-B <- jq1.dtp.cellular.B.df$real_bc44
-C <- jq1.dtp.cellular.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(jq1.dtp.cellular.A.df, jq1.dtp.cellular.B.df, jq1.dtp.cellular.C.df)
-all.jq1.cellular.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(jq1.dtp.cellular.A.df, jq1.dtp.cellular.B.df, jq1.dtp.cellular.C.df, jq1.dtp.cellular.df,
-   jq1.dtp.cellular, jq1.dtp.filtered, dtp.jq1.meta.clones.filtered)
-gc()
-
-#Generate colour palette for seurat_clusters_0.2
-P9 <- c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA")
-P9 <- as.vector(t(matrix(P9)))
-names(P9) = c("0", "1", "2", "3", "4", "5", "6", "7", "8")
-
-####
-#JQ1 AMT states
-jq1.amt.dtp.df <- full.meta.df %>%
-  filter(Condition == "Untreated" | Condition == "JQ1" | Condition == "JQ1_rec") %>%
-  select(c(AMT.state, Sample, real_bc44, Condition, Count))
-
-jq1.amt.dtp.df <- jq1.amt.dtp.df[, c(3, 4, 1, 2, 5)]
-
-tmp <- jq1.amt.dtp.df %>%
-  group_by(Sample, Condition, real_bc44) %>%
-  mutate(total_clones=sum(Count)) %>%
-  ungroup() %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  mutate(percentage = Count/total_clones * 100) %>%
-  ungroup() 
-
-tmp$timepoint[tmp$Condition == "Untreated"] <- "T1"
-tmp$timepoint[tmp$Condition == "JQ1"] <- "T2"
-tmp$timepoint[tmp$Condition == "JQ1_rec"] <- "T3"
-
-tmp2 <- tmp %>%
-  group_by(real_bc44, Condition, Sample) %>%
-  summarise(count = n_distinct(AMT.state))
-
-jq1.amt.states <- tmp2 %>%
-  group_by(count, Condition, Sample) %>%
-  summarise(clones = length(unique(real_bc44)))
-
-jq1.amt.states.summary <- jq1.amt.states %>%
-  filter(Condition == "JQ1_rec")
-
-#Calculate percentage of clones with each representation
-jq1.amt.states.perc <- jq1.amt.states.summary %>%
-  group_by(Sample, Condition) %>%
-  mutate(total_freq = sum(clones)) %>%
-  ungroup() %>%
-  mutate(perc = clones/total_freq * 100) %>%
-  ungroup()
-
-jq1.amt.states.perc$count <- as.character(jq1.amt.states.perc$count)
-
-#Plot manuscript extended figure 7c - JQ1
-jq1.amt.states.perc %>%
-  ggplot( ,aes(x=Sample, y=perc))+
-  geom_bar(aes(x=Sample, y=perc, fill=count), colour="black", stat = "identity", position = "stack") +
-  xlab("States Occupied")+
-  scale_fill_manual(values = P3)+
-  ylab("Number of Clones")+
-  ggtitle("JQ1 Recovery AMT states Clone Summary")+
-  theme_bw()+
+state.df %>%
+  ggplot( aes(axis1=real_bc44, axis2 = POT, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone" ,"POT"), expand = c(.2, .05)) +
+  geom_alluvium() +
+  geom_stratum(aes(fill = POT), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values = amt.cols) +
+  theme_cowplot() +
   theme(panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
-        axis.text.y = element_text(size =10),
-        axis.text.x = element_text(size=10),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
         legend.key.size = unit(0.5, 'cm'),
         legend.text = element_text(size=8),
-        legend.title = element_text(size=8))
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("plots/pot_alluvial_2_new.pdf", dpi=700, width=5, height=5)
 
-#Define clones which are only observed in one cellular state within untreated
-jq1.amt.states.ss <- tmp2 %>%
-  filter(count == 1 & Condition == "Untreated") %>% ungroup() %>%
-  select(c(real_bc44, Sample))
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = POT, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone" ,"POT"), expand = c(.2, .05)) +
+  geom_alluvium() +
+  geom_stratum(aes(fill=real_bc44), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values=ut_palette) +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("plots/pot_alluvial_3_new.pdf", dpi=700, width=5, height=5)
 
-jq1.amt.states.ss.df <- merge(jq1.amt.states.ss, tmp, by=c("real_bc44", "Sample"))
-length(unique(jq1.amt.states.ss.df$real_bc44)) #154 clones
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = label, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "Label"), expand = c(.2, .05)) +
+  geom_stratum(aes(fill = label), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("plots/pot_alluvial_label_bar_new.pdf", dpi=700, width=5, height=5)
 
-jq1.amt.states.ss.T2 <- jq1.amt.states.ss.df %>%
-  group_by(real_bc44, Sample, timepoint) %>%
-  summarise(barcodes = n_distinct(real_bc44))
-jq1.amt.states.ss.T2$clone_state <- NA
 
-dtp.jq1.amt.clones <- jq1.amt.states.ss.T2 %>%
-  mutate(clone_state = ifelse(barcodes == "1" & timepoint == "T3", "DTP", clone_state))
+## ggalluvial plots for each condition - Condition Full data ----
 
-dtp.jq1.amt.clones.filtered <- dtp.jq1.amt.clones %>%
-  filter(clone_state == "DTP") %>%
-  select(-c(timepoint, barcodes))
+#### N.B. alluvial plots were generated for each individual condition and replicate as follows
+# Only the example of Cisplatin(1)_ON A is demonstrated below
 
-jq1.amt.dtp.df <- merge(dtp.jq1.amt.clones.filtered, tmp, by=c("real_bc44", "Sample"))
+#summary.df currently has the barcodes in each condition and how many states they appear in
+#Assign replicate values correctly
+analysis.df <- meta.df %>% filter(Condition == "Cisplatin(1)_ON" & !is.na(real_bc44))
+length(unique(analysis.df$real_bc44[analysis.df$Condition == "Cisplatin(1)_ON" & (!(is.na(analysis.df$real_bc44)))])) #68 clones
 
-#Clean up files
-rm(tmp, tmp2, jq1.amt.states, jq1.amt.states.perc, jq1.amt.states.ss,
-   jq1.amt.states.ss.df, jq1.amt.states.ss.T2, jq1.amt.states.summary,
-   dtp.jq1.amt.clones, dtp.jq1.amt.clones.filtered)
-gc()
+#Summarise how many of these clones are in different cellular clusters
+#Calculate the total clonal frequency within each replicate and condition, and therefore its proportion within each sample
+test <- analysis.df %>%
+  group_by(real_bc44) %>%
+  mutate(clones_count = n(),
+         total_clones = sum(clones_count),
+         percentage = clones_count/total_clones * 100) %>% 
+  ungroup() %>%
+  dplyr::select(c(real_bc44, CellID, AMT.state, Condition, replicate))
 
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_A" & jq1.amt.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_A"]
-distinct.jq1.A.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.A <- jq1.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.A.barcodes))
+#Isolate only those clones which are in a single seurat cluster in POT
+test2A <- test %>% filter(replicate == "A") 
+test2B <- test %>% filter(replicate == "B") 
+test2C <- test %>% filter(replicate == "C") 
 
-#Visualise for ggalluvial
-jq1.dtp.A.df <- jq1.dtp.A %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- jq1.dtp.A.df %>%
-  group_by(real_bc44, Sample, Count) %>%
+tmp_A <- test2A %>%
+  group_by(real_bc44, replicate) %>%
   mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
+  tidyr::pivot_wider(names_from = replicate, values_from = AMT.state) %>%
+  select(-row) %>%
+  group_by(real_bc44, A) %>%
+  mutate(count = n())
 
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.amt.A.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_B" & jq1.amt.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_B"]
-distinct.jq1.B.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.B <- jq1.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.B.barcodes))
-
-#Visualise for ggalluvial
-jq1.dtp.B.df <- jq1.dtp.B %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- jq1.dtp.B.df %>%
-  group_by(real_bc44, Sample, Count) %>%
+tmp_B <- test2B %>%
+  group_by(real_bc44, replicate) %>%
   mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
+  tidyr::pivot_wider(names_from = replicate, values_from = AMT.state) %>%
+  select(-row) %>%
+  group_by(real_bc44, B) %>%
+  mutate(count = n())
 
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
-
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
-
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.amt.B.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Remove datapoints with no information at T2
-jq1.T2.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_C" & jq1.amt.dtp.df$timepoint == "T2"]
-jq1.all.barcodes <- jq1.amt.dtp.df$real_bc44[jq1.amt.dtp.df$Sample == "Neuro_C"]
-distinct.jq1.C.barcodes <- c(setdiff(jq1.all.barcodes, jq1.T2.barcodes), setdiff(jq1.T2.barcodes, jq1.all.barcodes))
-jq1.dtp.C <- jq1.amt.dtp.df %>% filter(!(real_bc44 %in% distinct.jq1.C.barcodes))
-
-#Visualise for ggalluvial
-jq1.dtp.C.df <- jq1.dtp.C %>% select(c(real_bc44, timepoint, Count, AMT.state, Sample))
-
-tmp <- jq1.dtp.C.df %>%
-  group_by(real_bc44, Sample, Count) %>%
+tmp_C <- test2C %>%
+  group_by(real_bc44, replicate) %>%
   mutate(row = row_number()) %>%
-  tidyr::pivot_wider(names_from = timepoint, values_from = AMT.state) %>%
-  select(-row)
+  tidyr::pivot_wider(names_from = replicate, values_from = AMT.state) %>%
+  select(-row) %>%
+  group_by(real_bc44, C) %>%
+  mutate(count = n())
 
-tmp.T1 <- tmp %>%
-  select(-c(T2,T3)) %>%
-  filter(!(is.na(T1))) %>%
-  group_by(real_bc44, Sample, T1) %>%
-  summarise(sum_Count = sum(Count))
+#Visualise replicate A
+#Filter summary.df for condition of interest
+barcodes <- summary.df %>% filter(description == "Cisplatin(1)_ON A") %>% dplyr::select(-c(description, Condition))
 
-tmp.T2 <- tmp %>%
-  select(-c(T1,T3)) %>%
-  filter(!(is.na(T2))) %>%
-  group_by(real_bc44, Sample, T2) %>%
-  summarise(sum_Count = sum(Count))
+#Check presence of all barcodes in each dataframe - should be same as clone number above; 110 clones
+length(intersect(barcodes$real_bc44, tmp_A$real_bc44)) #43
 
-tmp.T3 <- tmp %>%
-  select(-c(T2,T1)) %>%
-  filter(!(is.na(T3))) %>%
-  group_by(real_bc44, Sample, T3) %>%
-  summarise(sum_Count = sum(Count))
+#Merge two dataframes
+intersect(colnames(tmp_A), colnames(barcodes))
+state.df <- left_join(barcodes, tmp_A, by = c("real_bc44"), relationship = "many-to-many")
 
-test.merge <- left_join(tmp.T1, tmp.T2, by=c("real_bc44", "Sample"))
-jq1.dtp.amt.C.df <- left_join(test.merge, tmp.T3, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(tmp, tmp.T1, tmp.T2, tmp.T3, test.merge, jq1.dtp.A, jq1.dtp.B, jq1.dtp.C,
-   distinct.jq1.A.barcodes, distinct.jq1.B.barcodes, distinct.jq1.C.barcodes, jq1.all.barcodes,
-   jq1.T2.barcodes, jq1.dtp.A.df, jq1.dtp.B.df, jq1.dtp.C.df)
-gc()
-
-#Plot data using alluvial
-#Generate UMAP including all info in wave plots from DTPs
-jq1.dtp.amt.A.df <- jq1.dtp.amt.A.df %>% filter(Sample == "Neuro_A")
-jq1.dtp.amt.B.df <- jq1.dtp.amt.B.df %>% filter(Sample == "Neuro_B")
-jq1.dtp.amt.C.df <- jq1.dtp.amt.C.df %>% filter(Sample == "Neuro_C")
-
-#Find overlapping clones in each replicate
-A <- jq1.dtp.amt.A.df$real_bc44
-B <- jq1.dtp.amt.B.df$real_bc44
-C <- jq1.dtp.amt.C.df$real_bc44
-clone.list <- Reduce(intersect, list(A, B, C))
-
-test <- rbind(jq1.dtp.amt.A.df, jq1.dtp.amt.B.df, jq1.dtp.amt.C.df)
-all.jq1.amt.dtp.df <- left_join(test, full.meta.df, by=c("real_bc44", "Sample"))
-
-#Clean up files
-rm(jq1.dtp.amt.A.df, jq1.dtp.amt.B.df, jq1.dtp.amt.C.df, jq1.dtp.amt.df,
-   jq1.dtp.amt, jq1.dtp.filtered, dtp.jq1.meta.clones.filtered)
-gc()
-
-#To counteract the overlap of cloens between replicates
-#Make new variable which is barcode + replicate
-all.jq1.amt.dtp.df <- all.jq1.amt.dtp.df %>%
-  mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-
-all.jq1.cellular.dtp.df <- all.jq1.cellular.dtp.df %>%
-  mutate(barcode_rep = paste0(real_bc44, "_", Sample))
-
-#Visulaise all informaito for cellular clusters and AMT states
-#Plot manuscript figure 4e - left hand panel
-all.jq1.amt.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript figure 4d - left hand panel
-all.jq1.cellular.dtp.df %>%
-  filter(Condition == "Untreated") %>%
-  mutate(Condition = factor(Condition, levels=c("Untreated"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values=P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript figure 4e - right hand panel
-all.jq1.amt.dtp.df %>%
-  filter(Condition == "JQ1_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("JQ1_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = AMT.state), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(breaks = c("MES", "intermediate", "ADRN"),
-                      values=c("#F37735", "lightgrey", "#990099")) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Plot manuscript figure 4d - left hand panel
-all.jq1.cellular.dtp.df %>%
-  filter(Condition == "JQ1_rec") %>%
-  mutate(Condition = factor(Condition, levels=c("JQ1_rec"))) %>%
-  ggplot(aes(x = UMAP_1, 
-             y = UMAP_2))+
-  geom_scattermore(data = full.meta.df[, c("UMAP_1", "UMAP_2")], colour = "white", pointsize = 2)+
-  geom_scattermore(aes(colour = seurat_clusters.0.2), pointsize = 5)+
-  guides(color = guide_legend(override.aes = list(size = 6)), size=guide_legend(ncol=6)) +
-  scale_colour_manual(values=P9) +
-  labs(x = "UMAP_1",
-       y = "UMAP_2",
-       color="Experimental Condition") +
-  theme_cowplot() +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(), 
-        panel.background = element_blank(),
-        plot.title = element_text(size = 18),
-        axis.title.x = element_text(size = 8),
-        axis.title.y = element_text(size = 8),
-        axis.title = element_text(size=12),
-        axis.text.x = element_text(size = 8, hjust=0.95, vjust = 0.5),
-        axis.text.y = element_text(size = 8),
-        strip.text.x = element_text(size = 10),
-        legend.title = element_text(size=8),
-        legend.text = element_text(size=8),
-        panel.border = element_blank(),
-        legend.position = "bottom",
-        aspect.ratio = 1,
-        strip.background = element_rect(color="white", fill="white", linewidth=0.25, linetype="solid"))
-
-#Make compiled list of clones to generate JQ1 colour palette for barcodes
-amt.list <- unique(all.jq1.amt.dtp.df$barcode_rep)
-cellular.list <- unique(all.jq1.cellular.dtp.df$barcode_rep)
-jq1.dtp.barcodes <- c(amt.list, cellular.list)
-unique.jq1.dtp.barcodes <- unique(jq1.dtp.barcodes)
-
+#Plot ggalluvial to visualise transitions
 #Generate barcode palette
+length(unique(state.df$real_bc44)) 
+
+# Create a factor for real_bc44 based on num_cell_state
+state.df <- state.df %>%
+  arrange(num_cell_states) %>% # Order the rows by num_cell_states
+  mutate(real_bc44 = factor(real_bc44, levels = unique(real_bc44))) 
+
+#Create log value of counts
+state.df$log_count <- log2(state.df$count)
+
+# Add labels for num_cell_states to the left-hand side
+state.df <- state.df %>%
+  mutate(label = as.character(num_cell_states)) # Create labels for num_cell_states
+
+#Remove all other columns
+state.df <- state.df %>% dplyr::select(c(CellID, A, log_count, count, real_bc44, label))
+
+#Save state.df for downstream analysis so we do not have to regenerate it everytime
+write.csv(state.df, "datafiles/Cisplatin(1)_ON_A_alluvial_data_new.csv")
+
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = A, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "Cisplatin(1)_ON A"), expand = c(.2, .05)) +
+  geom_alluvium(aes(fill = A)) +
+  geom_stratum(width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values = amt.cols) +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8))
+ggsave("plots/Cisplatin(1)_ON_A_alluvial_1_new.pdf", dpi=700, width=5, height=5)
+
+state.df %>%
+  ggplot( aes(axis1=real_bc44, axis2 = A, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "Cisplatin(1)_ON A"), expand = c(.2, .05)) +
+  geom_alluvium() +
+  geom_stratum(aes(fill = A), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values = amt.cols) +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("plots/Cisplatin(1)_ON_A_alluvial_2_new.pdf", dpi=700, width=5, height=5)
+
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = A, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "Cisplatin(1)_ON A"), expand = c(.2, .05)) +
+  geom_alluvium() +
+  geom_stratum(aes(fill=real_bc44), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_manual(values=ut_palette) +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("plots/Cisplatin(1)_ON_A_alluvial_3_new.pdf", dpi=700, width=5, height=5)
+
+state.df %>%
+  ggplot( aes(axis1 = real_bc44, axis2 = label, y = log_count)) +
+  scale_x_discrete(limits = c("Cellecta Clone", "Label"), expand = c(.2, .05)) +
+  geom_stratum(aes(fill = label), width = 1/8, alpha=0.8, colour="black") +
+  geom_text(aes(label = label), stat = "stratum", nudge_x = -0.125) + # Add labels to the left
+  scale_fill_viridis(discrete = TRUE, option = "D") +
+  theme_cowplot() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(size=8),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.text = element_text(size=8),
+        legend.title = element_text(size=8),
+        legend.position = "none")
+ggsave("Cisplatin(1)_ON_A_alluvial_label_bar_new.pdf", dpi=700, width=5, height=5)
+
+
+
+
+# Summary and stats of alluvial ----
+#Load in all dataframes of information plotted on ggalluvial plots
+alluvial.list <- list.files("datafiles", pattern="_alluvial_data_new.csv", full.names = TRUE)
+
+# Initialize a list to store dataframes
+df_list <- list()
+
+# Loop through the files and process each
+for (x in seq_along(alluvial.list)) {
+  # Extract filename without path and remove ".csv"
+  file_name <- gsub("_alluvial_data_new.csv$", "", basename(alluvial.list[x])) 
+  
+  # Ensure the name is a valid R variable name
+  file_name <- make.names(file_name)
+  
+  # Read the CSV file
+  df <- read.csv(alluvial.list[x], sep = ",", header = TRUE, stringsAsFactors = FALSE)
+  
+  # Add a new column with the dataframe name
+  df$name <- file_name
+  
+  # Store in list
+  df_list[[file_name]] <- df
+}
+
+# Merge all dataframes into one
+merged_df <- bind_rows(df_list, .id = "source")
+merged_df$source <- NULL
+merged_df$X <- NULL
+
+
+#Extract info per replicate or POT so we can remove excess information
+merged_A.df <- merged_df %>%
+  dplyr::select(c(A, count, real_bc44, label, name)) %>%
+  filter(!is.na(A)) %>%
+  distinct()
+
+merged_B.df <- merged_df %>%
+  dplyr::select(c(B, count, real_bc44, label, name)) %>%
+  filter(!is.na(B)) %>%
+  distinct()
+
+merged_C.df <- merged_df %>%
+  dplyr::select(c(C, count, real_bc44, label, name)) %>%
+  filter(!is.na(C)) %>%
+  distinct()
+
+#Redefine label for 1 and more than 1
+merged_A.df$label[merged_A.df$label == 1] <- "=1"
+merged_A.df$label[merged_A.df$label == 2] <- ">1"
+merged_A.df$label[merged_A.df$label == 3] <- ">1"
+
+merged_B.df$label[merged_B.df$label == 1] <- "=1"
+merged_B.df$label[merged_B.df$label == 2] <- ">1"
+merged_B.df$label[merged_B.df$label == 3] <- ">1"
+
+merged_C.df$label[merged_C.df$label == 1] <- "=1"
+merged_C.df$label[merged_C.df$label == 2] <- ">1"
+merged_C.df$label[merged_C.df$label == 3] <- ">1"
+
+#Extract only condition, reomve replicates
+merged_A.df$Condition <- sub("^(.*)_(.*?)$", "\\1", merged_A.df$name)
+merged_B.df$Condition <- sub("^(.*)_(.*?)$", "\\1", merged_B.df$name)
+merged_C.df$Condition <- sub("^(.*)_(.*?)$", "\\1", merged_C.df$name)
+
+#For each replicate/condition summarise the amount of cellID which are in each num_cell_states/label condition
+#We do not need the barcode information now as we just need to summarise the number of cells which are deemed "plastic" at that moment
+sum_A.df <- merged_A.df %>%
+  group_by(Condition, label) %>%
+  summarise(freq = sum(count)) %>%
+  ungroup()
+
+sum_B.df <- merged_B.df %>%
+  group_by(Condition, label) %>%
+  summarise(freq = sum(count)) %>%
+  ungroup()
+
+sum_C.df <- merged_C.df %>%
+  group_by(Condition, label) %>%
+  summarise(freq = sum(count)) %>%
+  ungroup()
+
+#Merge all
+df_list <- list(sum_A.df, sum_B.df, sum_C.df)
+sum.df <- do.call("rbind", df_list)
+rm(sum_A.df, sum_B.df, sum_C.df, merged_A.df, merged_B.df, merged_C.df)
+
+#Aggregate across replicates
+sum.df <- sum.df %>%
+  group_by(Condition, label) %>%
+  summarise(freq_all = sum(freq)) %>% ungroup()
+
+#Conduct statistical test between conditions - chi squared test
+#Create contingency table with rows containing treatments and columns containing groups
+library(tidyr)
+library(tibble)
+library(dplyr)
+
+# Convert tibble to matrix
+sum_matrix <- sum.df %>%
+  pivot_wider(names_from = label, values_from = freq_all) %>%
+  column_to_rownames(var = "Condition") %>%
+  as.matrix()
+
+# Conduct the chi-squared test - UT vs each other condition
+# Null hypothesis that plasticity groups and treatment are independent
+# p < 0.05 there for condition and plasticity groups are dependent
+# Define "Untreated" as BRD4i_OFF
+n_samples <- unique(rownames(sum_matrix))
+
+first = T
+for (i in 1:length(n_samples)) {
+  for (j in 1:length(n_samples)) {
+    
+    if (i > j) {
+      
+      #Isolate only conditions being used
+      subset_data <- sum_matrix[c(i, j), ] 
+      
+      # Perform Chi-Square test
+      chi_test <- chisq.test(subset_data)
+      
+      if(first){
+        df_pval = data.frame(GroupB = n_samples[i],
+                             GroupA = n_samples[j],
+                             Chi_Square_Stat = chi_test$statistic,
+                             pvalue = chi_test$p.value)
+        first = F
+      } else {
+        df_pval = rbind.data.frame(df_pval,
+                                   data.frame(GroupB = n_samples[i],
+                                              GroupA = n_samples[j],
+                                              Chi_Square_Stat = chi_test$statistic,
+                                              pvalue = chi_test$p.value))
+      }
+    }
+  }
+}
+
+# Apply Bonferroni correction for multiple comparisons
+df_pval$p_adjusted <- p.adjust(df_pval$pvalue, method = "bonferroni")
+
+#Visualise pvalues of each comparison
+#Extract pvalues from each comparison for plotting
+corr.df <- df_pval %>%
+  select(c(GroupA, GroupB, p_adjusted))
+
+#Remove rownames
+rownames(corr.df) <- NULL
+
+#Calculate ratio between group =1 and group >1
+sum_matrix.df <- as.data.frame(sum_matrix)
+sum_matrix.df$Condition <- rownames(sum_matrix.df)
+rownames(sum_matrix.df) <- NULL
+sum_matrix.df$total <- sum_matrix.df$`=1` + sum_matrix.df$`>1`
+sum_matrix.df$ratio <- sum_matrix.df$`>1` / sum_matrix.df$total
+
+#Calculate change up or down from UT
+sum_matrix.df <- sum_matrix.df %>%
+  mutate(change = ratio - ratio[Condition == "Untreated"])
+
+#Remove unneeded columns and data
+tmp <- sum_matrix.df %>%
+  select(c(Condition, change))
+
+untreated.df <- corr.df %>%
+  filter(GroupB == "Untreated")
+
+#Merge tmp and untreated.df based on Condition (tmp) and GroupA (untreated.df)
+merged_df <- left_join(tmp, untreated.df, by = c("Condition" = "GroupA"))
+
+#Remove untreated NA column and filter only significant p-values (p_adjusted < 0.05)
+filtered_df <- merged_df %>%
+  filter(!is.na(GroupB))
+
+#Define size based on the sign of change
+filtered_df <- filtered_df %>%
+  mutate(size_var = ifelse(change >= 0, "positive", "negative")) 
+
+filtered_df <- filtered_df %>%
+  mutate(size_var = ifelse(p_adjusted >= 0.05, "not-significant", size_var))
+
+#Visualise data 
+filtered_df %>%
+  mutate(Condition = fct_relevel(Condition, "POT", "Cisplatin1ON", "Cisplatin2ON",
+                                 "Cisplatin1weeksOFF", "Cisplatin4weeksOFF",
+                                 "CHIR99021_ON", "CHIR99021_OFF",
+                                 "BRD4i_ON", "BRD4i_OFF",
+                                 "EZH2i_ON", "EZH2i_OFF")) %>%
+  ggplot( aes(x = Condition, y = GroupB, fill = size_var, size = -log10(p_adjusted))) +
+  geom_point(shape = 21, color = "black") +   
+  scale_fill_manual(values = c("red", "grey", "blue")) +
+  scale_size(range = c(3, 12)) +
+  coord_fixed() +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1)) +
+  labs(title = "Significant Condition Comparisons (p < 0.05)",
+       x = "Condition", y = "",
+       size = "- log 2 Adjusted P-value")
+ggsave("chi-squared_results_plasticity_all.pdf", width = 12, height = 5)
+
+
+#### N.B. plots were generated per condition
+## Only Cisplatin 1 and associated samples are described here
+
+filtered_df %>%
+  filter(Condition == "POT" | Condition == "Cisplatin1ON" | Condition == "Cisplatin1weeksOFF") %>%
+  mutate(Condition = fct_relevel(Condition, "POT", "Cisplatin1ON", "Cisplatin1weeksOFF")) %>%
+  ggplot( aes(x = Condition, y = GroupB, fill = size_var, size = -log10(p_adjusted))) +
+  geom_point(shape = 21, color = "black") +   
+  scale_fill_manual(values = c("grey", "blue")) +
+  scale_size(range = c(3, 12)) +
+  coord_fixed() +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1)) +
+  labs(title = "Significant Condition Comparisons (p < 0.05)",
+       x = "Condition", y = "",
+       size = "- log 2 Adjusted P-value")
+ggsave("chi-squared_results_plasticity_Cis_short.pdf", width = 7, height = 5)
+
+
+#Save corr.df and filtered.df for later use
+write.csv(corr.df, "correlation_chi-squared_data_plasticity.csv", row.names = FALSE)
+write.csv(filtered_df, "UTvsall_chi-squared_data_plasticity.csv", row.names = FALSE)
+write.csv(df_pval, "chi-squared_raw_plasticity.csv", row.names = FALSE)
+
+
+
+
+
+## Correlation between clone frequency and phenotypic plasticity ----
+## Load packages and dependencies
+required.packages <- c("scater", "scran", "scuttle", "Seurat", "patchwork", 
+                       "biomaRt", "reshape2", "EnsDb.Hsapiens.v86", "ggsankey", 
+                       "tricycle", "hues", "dplyr", "SingleCellExperiment", "ggsci",
+                       "ggthemes", "cowplot", "scattermore", "viridis", "MatrixGenerics",
+                       "scale", "enrichR", "umap", "rstatix", "ggpubr", "Polychrome", 
+                       "ggalluvial", "forcats", "vegan", "ggVennDiagram", "purrr")
+
+if (!all(required.packages %in% installed.packages()[,"Package"])){
+  BiocManager::install(required.packages[!required.packages %in% installed.packages()[,"Package"]])
+}
+
+library(dplyr)
+library(SingleCellExperiment)
+library(tidyverse)
+library(ggsci)
+library(ggthemes)
+library(cowplot)
+library(reshape2)
+library(scater)
+library(scattermore)
+library(viridis)
+library(biomaRt)
+library(MatrixGenerics)
+library(scales)
+library(enrichR)
+library(scran)
+library(umap)
+library(rstatix)
+library(ggpubr)
+library(Polychrome)
+library(ggalluvial)
+library(forcats)
+library(Seurat)
+library(SeuratData)
+library(SeuratObject)
+library(hues)
+library(patchwork)
+library(vegan)
+library(ggVennDiagram)
+library(purrr)
+
+#Define colour palettes
+amt.cols <- c("ADRN" = "#990099",
+              "intermediate" = "lightgrey",
+              "MES" = "#F37735")
+
+
+#Load in RDS object with barcodes for processing
+nb.seurat <- readRDS("nb_seurat_Wbarcodes.RDS")
+
+meta.df <- as.data.frame(nb.seurat@meta.data)
+
+#Edit errors in naming
+meta.df$Condition <- as.character(meta.df$Condition)
+meta.df$description <- as.character(meta.df$description)
+meta.df$Condition[meta.df$Condition == "Cisplatin_1weeksOFF"] <- "Cisplatin_1weekOFF"
+
+meta.df$description[meta.df$description == "Cisplatin_1weeksOFF C"] <- "Cisplatin_1weekOFF C"
+meta.df$description[meta.df$description == "Cisplatin_1weeksOFF B"] <- "Cisplatin_1weekOFF B"
+meta.df$description[meta.df$description == "Cisplatin_4weekOFF B"] <- "Cisplatin_4weeksOFF B"
+meta.df$description[meta.df$description == "Cisplatin_4weekOFF C"] <- "Cisplatin_4weeksOFF C"
+
+meta.df$replicate[meta.df$replicate == " A"] <- "A"
+meta.df$replicate[meta.df$replicate == " B"] <- "B"
+meta.df$replicate[meta.df$replicate == " C"] <- "C"
+
+#Add in POT replicates
+meta.df$description[meta.df$batch == "multiplex5" & meta.df$Condition == "POT"] <- "POT A"
+meta.df$description[meta.df$batch == "multiplex11" & meta.df$Condition == "POT"] <- "POT B"
+meta.df$description[meta.df$batch == "multiplex12" & meta.df$Condition == "POT"] <- "POT C"
+
+#Isolate CellID, real_bc44 and num_cell_states
+#Remove unnecessary variables
+subset.meta.df <- meta.df %>% dplyr::select(c(real_bc44, CellID, AMT.state, Condition, description, replicate))
+
+#Remove information without barcodes
+subset.meta.df <- subset.meta.df %>% filter(!is.na(real_bc44))
+
+#Subset for barcodes 
+subset.meta.df <- subset.meta.df %>%
+  group_by(real_bc44, description) %>%
+  mutate(count = n()) %>%
+  filter(count >= 3) %>%
+  select(-c(count))
+
+# Count unique real_bc44 per description
+result <- subset.meta.df %>%
+  group_by(description) %>%
+  summarise(unique_real_bc44_count = n_distinct(real_bc44))
+
+#Compute how many cell states are present for each clone in each condition
+summary.df <- subset.meta.df %>%
+  group_by(real_bc44, description, Condition) %>%
+  summarize(num_cell_states = n_distinct(AMT.state)) %>%
+  ungroup() 
+
+#Combine num_cell_state information with remainder of meta data
+sub.meta.df <- meta.df %>% dplyr::select(c(CellID, real_bc44, Condition, description, replicate))
+sub.meta.df <- sub.meta.df %>% filter(!is.na(real_bc44)) #29285 cells
+rownames(sub.meta.df) <- NULL
+
+#Summarise the count of each clone in each description
+tmp <- sub.meta.df %>%
+  group_by(real_bc44, description, Condition, replicate) %>%
+  summarise(total_clone_count = n())
+
+intersect(colnames(tmp), colnames(summary.df))
+state.df <- merge(summary.df, tmp, by = c("real_bc44", "Condition", "description"), relationship = "many-to-many")
+
+#Conduct Spearmans correlation
+#Isolate dataframe for each condition
+# Function to compute correlation for each group
+# Define function with error handling
+compute_correlation <- function(subset_data) {
+  list(Spearman = cor(subset_data$total_clone_count, subset_data$num_cell_states, method = "spearman"))
+}
+
+cor_results <- lapply(split(state.df, state.df$description), compute_correlation)
+print(cor_results)
+
+#Log2 clone frequency for easier visuals
+state.df <- state.df %>%
+  mutate(log_count = log(total_clone_count))
+
+# Correlation plot of raw data, faceted by condition
+library("ggpubr")
+ggscatter(state.df, x = "num_cell_states", y = "log_count", 
+          color = "replicate",
+          add = "reg.line", conf.int = TRUE, conf.int.level = 0.95,
+          cor.coef = TRUE, cor.method = "spearman",
+          xlab = "Cell State Occupancy", ylab = "Clone Frequency") +
+  facet_wrap(~Condition)
+ggsave("plots/scClonal_dynamics/freq_occupancy_correlation_new.pdf", width = 12, height = 12)
+
+## Summary for thesis plots ----
+#Remove cells with no cellecta barcode
+barcode.df <- subset.meta.df %>%
+  filter(!is.na(real_bc44)) %>%
+  select(c(real_bc44, Condition, replicate, description))
+
+rownames(barcode.df) <- NULL
+
+#Compute barcode information
+sum.barcode.df <- barcode.df %>%
+  group_by(description, Condition, real_bc44) %>%
+  mutate(N = n()) %>% ungroup() %>%
+  group_by(description, Condition) %>%
+  mutate(N_tot = n(),
+         Proportion = N/N_tot,
+         Percentage = Proportion * 100) %>% ungroup() %>%
+  distinct()
+
+tmp <- sum.barcode.df %>%
+  group_by(description, Condition) %>%
+  summarise(count = n_distinct(real_bc44)) %>% ungroup()
+
+#Visualise barcode information
+tmp %>%
+  mutate(Condition = fct_relevel(Condition,
+                                 "POT", "Untreated",
+                                 "Cisplatin(1)_ON", "Cisplatin(2)_ON", "Cisplatin_1weekOFF", "Cisplatin_4weeksOFF",
+                                 "CHIR99021_ON", "CHIR99021_OFF",
+                                 "JQ1_ON", "JQ1_OFF",
+                                 "EZH2i_ON", "EZH2i_OFF")) %>%
+  ggplot( aes(x = Condition, y = count)) +
+  geom_boxplot(colour = "black") +
+  geom_point()+
+  expand_limits(y = c(0, 80)) +
+  ggtitle("Clone Frequency Across Experimental Samples") +
+  xlab("Experimental Sample") +
+  ylab("Number of Unique Cellecta Clones")+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(size = 10, angle = 90, vjust = 1, hjust = 1),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        title = element_text(size = 10))
+ggsave("clones_across_scRNA_boxplot_new.pdf", width = 7, height = 5)  
+
+tmp %>%
+  filter(Condition == "POT" | Condition == "Untreated") %>%
+  mutate(Condition = fct_relevel(Condition,
+                                 "POT", "Untreated")) %>%
+  ggplot( aes(x = Condition, y = count)) +
+  geom_boxplot(colour = "black") +
+  geom_point()+
+  expand_limits(y = c(0, 80)) +
+  ggtitle("Clone Frequency Across Experimental Samples") +
+  xlab("Experimental Sample") +
+  ylab("Number of Unique Cellecta Clones")+
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(size = 10, angle = 90, vjust = 1, hjust = 1),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        title = element_text(size = 10))
+ggsave("POT_clones_across_scRNA_boxplot_new.pdf", width = 3, height = 5)  
+
+#Conduct stats between populations
+stats.df <- tmp
+n_sample <- unique(stats.df$Condition)
+
+first = T
+for (i in 1:length(n_sample)) {
+  for (j in 1:length(n_sample)) {
+    if(i > j) {
+      
+      tmp = t.test(stats.df$count[stats.df$Condition == n_sample[i]],
+                   stats.df$count[stats.df$Condition == n_sample[j]])
+      
+      if(first) {
+        df_pval = data.frame(GroupA = n_sample[i],
+                             GroupB = n_sample [j],
+                             pvalue = tmp$p.value)
+        
+        first = F
+      } else {
+        df_pval = rbind.data.frame(df_pval,
+                                   data.frame(GroupA = n_sample[i],
+                                              GroupB = n_sample[j],
+                                              pvalue = tmp$p.value))
+      }
+    }
+  }
+}
+
+df_pval <- df_pval %>% filter((GroupA == "POT" | GroupB == "POT"))
+
+results <- df_pval %>%
+  mutate(signif_value = ifelse(df_pval$pvalue < 0.001, "***",
+                               ifelse(df_pval$pvalue <= 0.01, "**",
+                                      ifelse(df_pval$pvalue <= 0.05, "*", "NA"))))
+write.csv(results, "stats_barcodes_between_samples_new.csv")
+
+
+#Visualise clone barcodes as bar chart for each sample
 set.seed(12)
-jq1_palette = createPalette(600, c("#ff0000", "#00ff00", "#0000ff"))
-jq1_palette <- jq1_palette[!(jq1_palette %in% cisplatin_palette)]
-jq1_palette <- jq1_palette[!(jq1_palette %in% ut_palette)]
-jq1_palette <- sample(jq1_palette, 149, replace=FALSE)
-jq1_palette <- as.vector(t(matrix(jq1_palette)))
-names(jq1_palette) = unique(as.character(jq1.dtp.barcodes))
-
-#Plot manuscript extended figure 7e - JQ1
-all.jq1.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7e - JQ1
-all.jq1.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7e - JQ1
-all.jq1.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7e - JQ1
-all.jq1.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=real_bc44, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T3), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("0", "1", "2", "3", "4", "5", "6", "7", "8"),
-                    values=c("#CC6677", "#228833", "#0077BB", "#332288", "#66CCEE", "#009988", "#EECC66", "#CC3311", "#CCDDAA"),
-                    na.value="black",
-                    name = "MetaCluster at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7e - JQ1
-all.jq1.cellular.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("0", "1", "2", "3", "4", "5", "6", "7", "8", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = jq1_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
-
-#AMT
-#Plot manuscript extended figure 7f - JQ1
-all.jq1.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium(aes(fill=T1)) +
-  geom_stratum( width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7f - JQ1
-all.jq1.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T1), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7f - JQ1
-all.jq1.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T2), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7f - JQ1
-all.jq1.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=real_bc44, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(aes(fill=T3), width = 1/8, alpha=0.8, colour="black") +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "lightgrey", "#990099"),
-                    na.value="black",
-                    name = "AMT State at T1") +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank())
-
-#Plot manuscript extended figure 7f - JQ1
-all.jq1.amt.dtp.df %>%
-  mutate(T1 = factor(T1, levels=c("MES", "intermediate", "ADRN", NA))) %>%
-  ggplot( aes(axis1=barcode_rep, axis2 = T1, axis3=T2, axis4=T3, y = log10(sum_Count.x))) +
-  scale_x_discrete(limits = c("Cellecta Clone" ,"Untreated", "JQ1", "JQ1 Recovery"), expand = c(.2, .05)) +
-  geom_alluvium() +
-  geom_stratum(width = 1/8, colour="black", aes(fill=barcode_rep), linewidth=0) +
-  scale_fill_manual(values = jq1_palette) +
-  theme_cowplot() +
-  ylab("log10(Clone Frequency)") +
-  theme(panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.ticks = element_blank(),
-        axis.text.x = element_text(size=8),
-        legend.key.size = unit(0.5, 'cm'),
-        legend.text = element_text(size=8),
-        legend.title = element_text(size=8),
-        axis.line = element_blank(),
-        legend.position = "none")
-
-
-#Load in UT data sets for AMT and cellular clusters
-all.ut.amt.dtp.df <- read.csv("datafiles/all_ut_amt_dtp.csv")
-all.cisplatin.amt.dtp.df <- read.csv("datafiles/all_cis_amt_dtp.csv")
-all.jq1.amt.dtp.df <- read.csv("datafiles/all_jq1_amt_dtp.csv")
-
-#Define levels of plotting for AMT states
-all.ut.amt.dtp.df$T1 <- factor(all.ut.amt.dtp.df$T1, levels = c("ADRN", "intermediate", "MES"))
-all.ut.amt.dtp.df$T2 <- factor(all.ut.amt.dtp.df$T2, levels = c("ADRN", "intermediate", "MES"))
-
-#Untreated transition plots
-ut.transitions <- all.ut.amt.dtp.df %>%
-  select(c(barcode_rep, T1, T2)) %>%
-  ungroup() %>%
-  mutate(transition = ifelse(T1 == "MES" & T2 == "MES", "MES fixed",
-                             ifelse(T1 == "ADRN" & T2 == "ADRN", "ADRN fixed",
-                                    ifelse(T1 == "intermediate" & T2 == "intermediate", "Intermediate fixed",
-                                           ifelse(T1 == "MES" & T2 == "ADRN", "MAT",
-                                                  ifelse(T1 == "ADRN" & T2 == "MES", "AMT",
-                                                         ifelse(T1 == "intermediate" & T2 == "ADRN", "IAT",
-                                                                ifelse(T1 == "intermediate" & T2 == "MES", "IMT",
-                                                                       ifelse(T1 == "ADRN" & T2 == "intermediate", "AIT",
-                                                                              ifelse(T1 == "MES" & T2 == "intermediate", "MIT", NA))))))))))
-
-#Check transitions present
-unique(ut.transitions$transition)
-#We are seeing everything we should so lets summarise how many unique clones we see in untreated conditions
-#Now lets visualise in an alluvial these transitions
-transitions <- c("MES fixed", "Intermediate fixed", "ADRN fixed", "AIT", "AMT", "IAT", "IMT", "MAT", "MIT")
-colours <- c("#f9bb9a", "#D3D3D3", "#c266c2", "#730073", "#3d003d", "#898989", "#0b0b0b", "#cf652d", "#6d3618")
-names(colours) <- transitions
-
-#Visualise via ggplot
-ut.transitions.summary <- ut.transitions %>%
-  group_by(transition) %>%
-  summarise(clones = n_distinct(barcode_rep))
-
-#Plot manuscript extended figure 7g - untreated
-ut.transitions.summary %>%
-  mutate(transition = fct_reorder(transition, clones)) %>%
-  ggplot(aes(x=transition, y=clones, fill=transition)) +
-  geom_bar(stat="identity") +
-  scale_y_continuous(breaks=seq(0,125,25), limits=c(0,125)) +
-  ylab("Number of Clones per Transition Group") +
-  xlab("Phenotypic Transition \n (Ordered by Increasing Clone Number)") +
-  scale_x_discrete(labels=c("HYB to MES", "HYB to HYB", "HYB to ADRN", "ADRN to MES", "MES to HYB", "MES to ADRN", "ADRN to HYB", "ADRN to ADRN", "MES to MES")) +
-  scale_fill_manual(values=colours,
-                    breaks=c("IMT", "Intermediate fixed", "IAT", "AMT", "MIT", "MAT", "AIT", "ADRN fixed", "MES fixed"),
-                    labels=c("HYB to MES", "HYB to HYB", "HYB to ADRN", "ADRN to MES", "MES to HYB", "MES to ADRN", "ADRN to HYB", "ADRN to ADRN", "MES to MES"),
-                    name = "Phenotypic Transition") +
-  theme_bw() +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust =1))
-
-
-#Generate palette for transitions
-ut.sum <- ut.transitions %>%
-  distinct()
-
-#Plot manuscript figure 4f - untreated
-ut.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=transition), alpha=1) +
-  geom_alluvium(width=1/8) +
-  scale_x_discrete(limits = c("Untreated", "Untreated Recovery"), expand = c(.2, .05)) +
-  geom_stratum(width = 1/8, colour="black", aes(fill=transition), linewidth=0) +
-  scale_fill_manual(values=colours,
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "ADRN to MES", "HYB to ADRN", "HYB to HYB", "HYB to MES", "MES to ADRN", "MES to HYB", "MES to MES"),
-                    breaks=c("ADRN fixed", "AIT", "AMT", "IAT", "Intermediate fixed", "IMT", "MAT", "MIT", "MES fixed"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,250,50), limits=c(0,250))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4f - untreated
-ut.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T1), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "Untreated Recovery"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,250,50), limits=c(0,250))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4f - untreated
-ut.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T2), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "Untreated Recovery"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,250,50), limits=c(0,250))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Define levels of plotting for AMT states
-all.cisplatin.amt.dtp.df$T1 <- factor(all.cisplatin.amt.dtp.df$T1, levels = c("ADRN", "intermediate", "MES"))
-all.cisplatin.amt.dtp.df$T2 <- factor(all.cisplatin.amt.dtp.df$T2, levels = c("ADRN", "intermediate", "MES"))
-
-#Cisplatin ON transition plots
-cis.on.transitions <- all.cisplatin.amt.dtp.df %>%
-  select(c(barcode_rep, T1, T2)) %>%
-  ungroup() %>%
-  mutate(transition = ifelse(T1 == "MES" & T2 == "MES", "MES fixed",
-                             ifelse(T1 == "ADRN" & T2 == "ADRN", "ADRN fixed",
-                                    ifelse(T1 == "intermediate" & T2 == "intermediate", "Intermediate fixed",
-                                           ifelse(T1 == "MES" & T2 == "ADRN", "MAT",
-                                                  ifelse(T1 == "ADRN" & T2 == "MES", "AMT",
-                                                         ifelse(T1 == "intermediate" & T2 == "ADRN", "IAT",
-                                                                ifelse(T1 == "intermediate" & T2 == "MES", "IMT",
-                                                                       ifelse(T1 == "ADRN" & T2 == "intermediate", "AIT",
-                                                                              ifelse(T1 == "MES" & T2 == "intermediate", "MIT", NA))))))))))
-
-#Check transitions present
-unique(cis.on.transitions$transition)
-#We are seeing everything we should so lets summarise how many unique clones we see in untreated conditions
-
-cis.on.transitions.summary <- cis.on.transitions %>%
-  group_by(transition) %>%
-  summarise(clones = n_distinct(barcode_rep))
-
-#Plot manuscript extended figure 7g - cisplatin on
-cis.on.transitions.summary %>%
-  mutate(transition = fct_reorder(transition, clones)) %>%
-  ggplot(aes(x=transition, y=clones, fill=transition)) +
-  geom_bar(stat="identity") +
-  scale_y_continuous(breaks=seq(0,125,25), limits=c(0,125)) +
-  ylab("Number of Clones per Transition Group") +
-  xlab("Phenotypic Transition \n (Ordered by Increasing Clone Number)") +
-  scale_x_discrete(labels=c("MES to ADRN", "ADRN to MES", "ADRN to ADRN", "MES to HYB", "MES to MES")) +
-  scale_fill_manual(values=colours,
-                    breaks=c("MAT", "AMT", "ADRN fixed", "MIT", "MES fixed"),
-                    labels=c("MES to ADRN", "ADRN to MES", "ADRN to ADRN", "MES to HYB", "MES to MES"),
-                    name = "Phenotypic Transition") +
-  theme_bw() +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust =1))
-
-#Now lets visualise in an alluvial these transitions
-#Generate palette for transitions
-cis.on.sum <- cis.on.transitions %>%
-  distinct()
-
-#Plot manuscript figure 4g - cisplatin on
-cis.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=transition)) +
-  geom_alluvium(width=1/8) +
-  scale_x_discrete(limits = c("Untreated", "Cisplatin"), expand = c(.2, .05)) +
-  geom_stratum(width = 1/8, colour="black", aes(fill=transition), linewidth=0) +
-  scale_fill_manual(values=colours,
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "ADRN to MES", "HYB to ADRN", "HYB to HYB", "HYB to MES", "MES to ADRN", "MES to HYB", "MES to MES"),
-                    breaks=c("ADRN fixed", "AIT", "AMT", "IAT", "Intermediate fixed", "IMT", "MAT", "MIT", "MES fixed"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4g - cisplatin on
-cis.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T1), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "Cisplatin"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4g - cisplatin on
-cis.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T2), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "Cisplatin"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Define levels of plotting for AMT states
-all.cisplatin.amt.dtp.df$T3 <- factor(all.cisplatin.amt.dtp.df$T3, levels = c("ADRN", "intermediate", "MES"))
-
-#Cisplatin OFF transition plots
-cis.off.transitions <- all.cisplatin.amt.dtp.df %>%
-  select(c(barcode_rep, T2, T3)) %>%
-  ungroup() %>%
-  mutate(transition = ifelse(T2 == "MES" & T3 == "MES", "MES fixed",
-                             ifelse(T2 == "ADRN" & T3 == "ADRN", "ADRN fixed",
-                                    ifelse(T2 == "intermediate" & T3 == "intermediate", "Intermediate fixed",
-                                           ifelse(T2 == "MES" & T3 == "ADRN", "MAT",
-                                                  ifelse(T2 == "ADRN" & T3 == "MES", "AMT",
-                                                         ifelse(T2 == "intermediate" & T3 == "ADRN", "IAT",
-                                                                ifelse(T2 == "intermediate" & T3 == "MES", "IMT",
-                                                                       ifelse(T2 == "ADRN" & T3 == "intermediate", "AIT",
-                                                                              ifelse(T2 == "MES" & T3 == "intermediate", "MIT", NA))))))))))
-
-#Check transitions present
-unique(cis.off.transitions$transition)
-#We are seeing everything we should so lets summarise how many unique clones we see in untreated conditions
-
-cis.off.transitions.summary <- cis.off.transitions %>%
-  group_by(transition) %>%
-  summarise(clones = n_distinct(barcode_rep))
-
-#Plot manuscript extended figure 7g - cisplatin off
-cis.off.transitions.summary %>%
-  mutate(transition = fct_reorder(transition, clones)) %>%
-  ggplot(aes(x=transition, y=clones, fill=transition)) +
-  geom_bar(stat="identity") +
-  scale_y_continuous(breaks=seq(0,125,25), limits=c(0,125)) +
-  ylab("Number of Clones per Transition Group") +
-  xlab("Phenotypic Transition \n (Ordered by Increasing Clone Number)") +
-  scale_x_discrete(labels=c("ADRN to ADRN", "ADRN to HYB", "MES to ADRN", "MES to HYB", "ADRN to MES", "HYB to MES", "MES to MES")) +
-  scale_fill_manual(values=colours,
-                    breaks=c("ADRN fixed", "AIT", "MAT", "MIT", "AMT", "IMT", "MES fixed"),
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "MES to ADRN", "MES to HYB", "ADRN to MES", "HYB to MES", "MES to MES"),
-                    name = "Phenotypic Transition") +
-  theme_bw() +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust =1))
-
-#Now lets visualise in an alluvial these transitions
-#Generate palette for transitions
-cis.off.sum <- cis.off.transitions %>%
-  distinct()
-
-#Plot manuscript figure 4g - cisplatin off
-cis.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=transition)) +
-  geom_alluvium(width=1/8) +
-  scale_x_discrete(limits = c("Cisplatin", "Cisplatin_rec"), expand = c(.2, .05)) +
-  geom_stratum(width = 1/8, colour="black", aes(fill=transition), linewidth=0) +
-  scale_fill_manual(values=colours,
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "ADRN to MES", "HYB to ADRN", "HYB to HYB", "HYB to MES", "MES to ADRN", "MES to HYB", "MES to MES"),
-                    breaks=c("ADRN fixed", "AIT", "AMT", "IAT", "Intermediate fixed", "IMT", "MAT", "MIT", "MES fixed"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4g - cisplatin off
-cis.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=T2), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Cisplatin", "Cisplatin_rec"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4g - cisplatin off
-cis.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=T3), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Cisplatin", "Cisplatin_rec"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,90,10), limits=c(0,90))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Define levels of plotting for AMT states
-all.jq1.amt.dtp.df$T1 <- factor(all.jq1.amt.dtp.df$T1, levels = c("ADRN", "intermediate", "MES"))
-all.jq1.amt.dtp.df$T2 <- factor(all.jq1.amt.dtp.df$T2, levels = c("ADRN", "intermediate", "MES"))
-
-#JQ1 ON transition plots
-jq1.on.transitions <- all.jq1.amt.dtp.df %>%
-  select(c(barcode_rep, T1, T2)) %>%
-  ungroup() %>%
-  mutate(transition = ifelse(T1 == "MES" & T2 == "MES", "MES fixed",
-                             ifelse(T1 == "ADRN" & T2 == "ADRN", "ADRN fixed",
-                                    ifelse(T1 == "intermediate" & T2 == "intermediate", "Intermediate fixed",
-                                           ifelse(T1 == "MES" & T2 == "ADRN", "MAT",
-                                                  ifelse(T1 == "ADRN" & T2 == "MES", "AMT",
-                                                         ifelse(T1 == "intermediate" & T2 == "ADRN", "IAT",
-                                                                ifelse(T1 == "intermediate" & T2 == "MES", "IMT",
-                                                                       ifelse(T1 == "ADRN" & T2 == "intermediate", "AIT",
-                                                                              ifelse(T1 == "MES" & T2 == "intermediate", "MIT", NA))))))))))
-
-#Check transitions present
-unique(jq1.on.transitions$transition)
-#We are seeing everything we should so lets summarise how many unique clones we see in untreated conditions
-
-jq1.on.transitions.summary <- jq1.on.transitions %>%
-  group_by(transition) %>%
-  summarise(clones = n_distinct(barcode_rep))
-
-#Plot manuscript extended figure 7g - jq1 on
-jq1.on.transitions.summary %>%
-  mutate(transition = fct_reorder(transition, clones)) %>%
-  ggplot(aes(x=transition, y=clones, fill=transition)) +
-  geom_bar(stat="identity") +
-  scale_y_continuous(breaks=seq(0,125,25), limits=c(0,125)) +
-  ylab("Number of Clones per Transition Group") +
-  xlab("Phenotypic Transition \n (Ordered by Increasing Clone Number)") +
-  scale_x_discrete(labels=c("HYB to ADRN", "HYB to HYB", "MES to ADRN", "MES to HYB", "ADRN to MES", "ADRN to HYB",  "ADRN to ADRN", "MES to MES")) +
-  scale_fill_manual(values=colours,
-                    breaks=c("IAT", "Intermediate fixed", "MAT", "MIT", "AMT", "AIT", "ADRN fixed", "MES fixed"),
-                    labels=c("HYB to ADRN", "HYB to HYB", "MES to ADRN", "MES to HYB", "ADRN to MES", "ADRN to HYB",  "ADRN to ADRN", "MES to MES"),
-                    name = "Phenotypic Transition") +
-  theme_bw() +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust =1))
-
-#Now lets visualise in an alluvial these transitions
-#Generate palette for transitions
-jq1.on.sum <- jq1.on.transitions %>%
-  distinct()
-
-#Plot manuscript figure 4h - jq1 on
-jq1.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=transition)) +
-  geom_alluvium() +
-  scale_x_discrete(limits = c("Untreated", "JQ1"), expand = c(.2, .05)) +
-  geom_stratum(width = 1/8, colour="black", aes(fill=transition), linewidth=0) +
-  scale_fill_manual(values=colours,
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "ADRN to MES", "HYB to ADRN", "HYB to HYB", "HYB to MES", "MES to ADRN", "MES to HYB", "MES to MES"),
-                    breaks=c("ADRN fixed", "AIT", "AMT", "IAT", "Intermediate fixed", "IMT", "MAT", "MIT", "MES fixed"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,150,25), limits=c(0,150))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4h - jq1 on
-jq1.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T1), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "JQ1"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,150,25), limits=c(0,150))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4h - jq1 on
-jq1.on.sum %>%
-  ggplot( aes(axis1=T1, axis2=T2, fill=T2), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("Untreated", "JQ1"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,150,25), limits=c(0,150))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Define levels of plotting for AMT states
-all.jq1.amt.dtp.df$T3 <- factor(all.jq1.amt.dtp.df$T3, levels = c("ADRN", "intermediate", "MES"))
-
-#Cisplatin OFF transition plots
-jq1.off.transitions <- all.jq1.amt.dtp.df %>%
-  select(c(barcode_rep, T2, T3)) %>%
-  ungroup() %>%
-  mutate(transition = ifelse(T2 == "MES" & T3 == "MES", "MES fixed",
-                             ifelse(T2 == "ADRN" & T3 == "ADRN", "ADRN fixed",
-                                    ifelse(T2 == "intermediate" & T3 == "intermediate", "Intermediate fixed",
-                                           ifelse(T2 == "MES" & T3 == "ADRN", "MAT",
-                                                  ifelse(T2 == "ADRN" & T3 == "MES", "AMT",
-                                                         ifelse(T2 == "intermediate" & T3 == "ADRN", "IAT",
-                                                                ifelse(T2 == "intermediate" & T3 == "MES", "IMT",
-                                                                       ifelse(T2 == "ADRN" & T3 == "intermediate", "AIT",
-                                                                              ifelse(T2 == "MES" & T3 == "intermediate", "MIT", NA))))))))))
-
-#Check transitions present
-unique(jq1.off.transitions$transition)
-#We are seeing everything we should so lets summarise how many unique clones we see in untreated conditions
-
-jq1.off.transitions.summary <- jq1.off.transitions %>%
-  group_by(transition) %>%
-  summarise(clones = n_distinct(barcode_rep))
-
-#Plot manuscript extended figure 7g - jq1 off
-jq1.off.transitions.summary %>%
-  mutate(transition = fct_reorder(transition, clones)) %>%
-  ggplot(aes(x=transition, y=clones, fill=transition)) +
-  geom_bar(stat="identity") +
-  scale_y_continuous(breaks=seq(0,125,25), limits=c(0,125)) +
-  ylab("Number of Clones per Transition Group") +
-  xlab("Phenotypic Transition \n (Ordered by Increasing Clone Number)") +
-  scale_x_discrete(labels=c("HYB to HYB", "ADRN to HYB", "MES to HYB", "HYB to MES", "ADRN to MES", "HYB to ADRN",  "ADRN to ADRN", "MES to ADRN", "MES to MES")) +
-  scale_fill_manual(values=colours,
-                    breaks=c("Intermediate fixed", "AIT", "MIT", "IMT", "AMT", "IAT", "ADRN fixed", "MAT", "MES fixed"),
-                    labels=c("HYB to HYB", "ADRN to HYB", "MES to HYB", "HYB to MES", "ADRN to MES", "HYB to ADRN",  "ADRN to ADRN", "MES to ADRN", "MES to MES"),
-                    name = "Phenotypic Transition") +
-  theme_bw() +
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust =1))
-
-#Now lets visualise in an alluvial these transitions
-#Generate palette for transitions
-jq1.off.sum <- jq1.off.transitions %>%
-  distinct()
-
-#Plot manuscript figure 4h - jq1 off
-jq1.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=transition)) +
-  geom_alluvium(width=1/8) +
-  scale_x_discrete(limits = c("JQ1", "JQ1_rec"), expand = c(.2, .05)) +
-  geom_stratum(width = 1/8, colour="black", aes(fill=transition), linewidth=0) +
-  scale_fill_manual(values=colours,
-                    labels=c("ADRN to ADRN", "ADRN to HYB", "ADRN to MES", "HYB to ADRN", "HYB to HYB", "HYB to MES", "MES to ADRN", "MES to HYB", "MES to MES"),
-                    breaks=c("ADRN fixed", "AIT", "AMT", "IAT", "Intermediate fixed", "IMT", "MAT", "MIT", "MES fixed"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,200,25), limits=c(0,200))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4h - jq1 off
-jq1.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=T2), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("JQ1", "JQ1_rec"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,200,25), limits=c(0,200))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-#Plot manuscript figure 4h - jq1 off
-jq1.off.sum %>%
-  ggplot( aes(axis1=T2, axis2=T3, fill=T3), alpha=1) +
-  geom_alluvium(width = 1/8, colour="black", linewidth=0) +
-  scale_x_discrete(limits = c("JQ1", "JQ1_rec"), expand = c(.2, .05)) +
-  geom_stratum(width=1/8) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic Transition") +
-  scale_y_continuous(breaks=seq(0,200,25), limits=c(0,200))+
-  theme_cowplot() +
-  xlab("") +
-  ylab("Unique Clones per Transition Group")
-
-
-#####
-#Now we need to generate bar plots summarising the number of DTPs in each cell state to accompany the UMAPS
-#Load in UT data sets for AMT and cellular clusters
-all.cisplatin.amt.dtp.df <- read.csv("datafiles/all_cis_amt_dtp.csv")
-all.jq1.amt.dtp.df <- read.csv("datafiles/all_jq1_amt_dtp.csv")
-
-#Cisplatin DTPS
-cisplatin.rec <- all.cisplatin.amt.dtp.df %>%
-  select(c(barcode_rep, T1, T2, T3, Condition)) %>%
-  filter(Condition == "Cisplatin_rec" | Condition == "Untreated")
-
-cisplatin.rec.sum <- cisplatin.rec %>%
-  filter(Condition == "Cisplatin_rec") %>%
-  group_by(T3, Condition) %>%
-  summarise(count = n_distinct(barcode_rep))
-colnames(cisplatin.rec.sum)[which(names(cisplatin.rec.sum) == "T3")] <- "state"
-
-untreated.cis.sum <- cisplatin.rec %>%
-  filter(Condition == "Untreated") %>%
-  group_by(T1, Condition) %>%
-  summarise(count = n_distinct(barcode_rep))
-colnames(untreated.cis.sum)[which(names(untreated.cis.sum) == "T1")] <- "state"
-
-ut.cis.rec <- rbind(cisplatin.rec.sum, untreated.cis.sum)
-
-ut.cis.rec$Condition <- factor(ut.cis.rec$Condition, levels = c("Untreated", "Cisplatin_rec"))
-
-ut.cis.rec.sum <- ut.cis.rec %>%
-  group_by(Condition) %>%
-  mutate(total_count = sum(count)) %>%
-  ungroup() %>%
-  group_by(Condition, state) %>%
-  mutate(proportion = (count/total_count))
-
-#Plot manuscript figure 4c - cisplatin
-ut.cis.rec.sum %>%
-  ggplot(aes(x=Condition, y=proportion, fill=state))+
+length(unique(sum.barcode.df$real_bc44)) #382
+P382 = createPalette(382, c("#ff0000", "#00ff00", "#0000ff"), M = 382)
+P382 <- as.vector(t(matrix(P382)))
+names(P382) <- unique(as.character(sum.barcode.df$real_bc44), row.names = FALSE)
+
+#Plot each bar set individually
+sum.barcode.df %>%
+  ggplot( aes(x = replicate, y = Proportion, fill = reorder(real_bc44, -Proportion))) +
   geom_bar(stat = "identity", position = "stack") +
-  scale_x_discrete(labels=c("Untreated", "Cisplatin OFF")) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic State") +
-  xlab("Proportion of AMT state") +
-  ylab("") +
-  theme_bw() + 
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+  facet_wrap(~Condition, ncol = 6) +
+  scale_fill_manual(values = P382) +
+  ylab("Cellecta Barcode (%)") +
+  xlab(" ") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.position = "none",
+        strip.background = element_rect(color = "white", fill = "white", linewidth = 0.25,
+                                        linetype = "solid"))
+ggsave("all_bar_new.pdf", width = 12, height = 5)
 
-#JQ1 DTPS
-jq1.rec <- all.jq1.amt.dtp.df %>%
-  select(c(barcode_rep, T1, T2, T3, Condition)) %>%
-  filter(Condition == "JQ1_rec" | Condition == "Untreated")
+### N.B. plots were generated for each condition individually
+# Only POT and untreated samples are described below 
 
-jq1.rec.sum <- jq1.rec %>%
-  filter(Condition == "JQ1_rec") %>%
-  group_by(T3, Condition) %>%
-  summarise(count = n_distinct(barcode_rep))
-colnames(jq1.rec.sum)[which(names(jq1.rec.sum) == "T3")] <- "state"
-
-untreated.jq1.sum <- jq1.rec %>%
-  filter(Condition == "Untreated") %>%
-  group_by(T1, Condition) %>%
-  summarise(count = n_distinct(barcode_rep))
-colnames(untreated.jq1.sum)[which(names(untreated.jq1.sum) == "T1")] <- "state"
-
-ut.jq1.rec <- rbind(jq1.rec.sum, untreated.jq1.sum)
-
-ut.jq1.rec$Condition <- factor(ut.jq1.rec$Condition, levels = c("Untreated", "JQ1_rec"))
-
-ut.jq1.rec.sum <- ut.jq1.rec %>%
-  group_by(Condition) %>%
-  mutate(total_count = sum(count)) %>%
-  ungroup() %>%
-  group_by(Condition, state) %>%
-  mutate(proportion = (count/total_count))
-
-#Plot manuscript figure 4e - JQ1
-ut.jq1.rec.sum %>%
-  ggplot(aes(x=Condition, y=proportion, fill=state))+
+sum.barcode.df %>%
+  filter(Condition == "POT") %>%
+  ggplot( aes(x = replicate, y = Proportion, fill = reorder(real_bc44, -Proportion))) +
   geom_bar(stat = "identity", position = "stack") +
-  scale_x_discrete(labels=c("Untreated", "JQ1 OFF")) +
-  scale_fill_manual(breaks = c("MES", "intermediate", "ADRN"),
-                    values=c("#F37735", "#D3D3D3", "#990099"),
-                    labels=c("MES", "HYB", "ADRN"),
-                    name = "Phenotypic State") +
-  xlab("Proportion of AMT state") +
-  ylab("") +
-  theme_bw() + 
-  theme(panel.background = element_blank(),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+  facet_wrap(~Condition, scales = "free", ncol = 6) +
+  expand_limits(y = c(0,1)) +
+  scale_fill_manual(values = P382) +
+  ylab("Cellecta Barcode (%)") +
+  xlab(" ") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.position = "none",
+        strip.background = element_rect(color = "white", fill = "white", linewidth = 0.25,
+                                        linetype = "solid"))
+ggsave("POT_bar.pdf", width = 3, height = 5)
+
+sum.barcode.df %>%
+  filter(Condition == "Untreated") %>%
+  ggplot( aes(x = replicate, y = Proportion, fill = reorder(real_bc44, -Proportion))) +
+  geom_bar(stat = "identity", position = "stack") +
+  facet_wrap(~Condition, scales = "free", ncol = 6) +
+  expand_limits(y = c(0,1)) +
+  scale_fill_manual(values = P382) +
+  ylab("Cellecta Barcode (%)") +
+  xlab(" ") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        axis.text.x = element_text(size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8),
+        legend.position = "none",
+        strip.background = element_rect(color = "white", fill = "white", linewidth = 0.25,
+                                        linetype = "solid"))
+ggsave("UT_bar.pdf", width = 3, height = 5)
 
